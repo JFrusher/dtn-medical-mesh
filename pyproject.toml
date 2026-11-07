@@ -15,6 +15,9 @@ dependencies = [
     "zfec>=1.6.0.0",
 ]
 
+[project.scripts]
+dtn-demo = "simulation.live:main"
+
 [dependency-groups]
 dev = [
     "pytest>=8",
@@ -22,6 +25,7 @@ dev = [
     "mypy>=1.11",
     "hypothesis>=6.170.15",
     "types-pyyaml>=6.0.12.20261103",
+    "httpx>=0.28.1",
 ]
 
 [build-system]

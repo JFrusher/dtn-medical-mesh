@@ -27,6 +27,13 @@ class RunResult:
 
 
 def run(scenario: Scenario, seed: int, data_dir: Path, echo: bool = False) -> RunResult:
+    result = build(scenario, seed, data_dir, echo)
+    result.world.scheduler.run_until(scenario.duration_s)
+    return result
+
+
+def build(scenario: Scenario, seed: int, data_dir: Path, echo: bool = False) -> RunResult:
+    """Set up the world, endpoints, workload and faults at t=0 without running it."""
     lines: list[str] = []
 
     def log(t: float, msg: str) -> None:
@@ -61,7 +68,6 @@ def run(scenario: Scenario, seed: int, data_dir: Path, echo: bool = False) -> Ru
         scheduler.schedule(m.at_s, partial(send, m))
     for f in scenario.faults:
         scheduler.schedule(f.at_s, partial(faults.apply, world, f))
-    scheduler.run_until(scenario.duration_s)
     return RunResult(scenario, world, endpoints, lines)
 
 

@@ -110,6 +110,7 @@ class World:
         self.wifi_bytes = 0
         self.peak_bytes: dict[str, int] = defaultdict(int)
         self.lora_over_budget = 0
+        self.lora_log: list[tuple[float, str]] = []  # (time, sender) of each LoRa broadcast
         self._duty: dict[str, DutyCycle] = defaultdict(DutyCycle)
         self.log: LogFn = log or (lambda t, msg: None)
 
@@ -264,6 +265,7 @@ class World:
         for node_id in sorted(self.nodes):
             if node_id != src and math.dist(here, self.position(node_id)) <= r.lora_range_m:
                 self.scheduler.after(airtime, partial(self.dispatch, self.nodes[node_id], heard))
+        self.lora_log.append((self.scheduler.now, src))
 
     def _in_range(self, a: str, b: str) -> bool:
         return math.dist(self.position(a), self.position(b)) <= self.radio.wifi_range_m

@@ -30,7 +30,9 @@ class Storage:
     def __init__(self, path: Path, key: bytes) -> None:
         if len(key) != 32:
             raise ValueError("storage key must be 32 bytes")
-        self._conn = sqlcipher.connect(str(path), isolation_level=None)
+        # One thread at a time uses a node's store (the emulator and daemon are single-threaded);
+        # it may not be the thread that opened it (e.g. a test client's event-loop thread).
+        self._conn = sqlcipher.connect(str(path), isolation_level=None, check_same_thread=False)
         self._conn.execute(f"PRAGMA key = \"x'{key.hex()}'\"")  # must precede any other statement
         mode = self._conn.execute("PRAGMA journal_mode = WAL").fetchone()[0]
         if mode != "wal":

@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "dtn-medical-mesh telemetry",
+  "description": "One snapshot of the mesh for the live map (spec §10.3). Same shape from the emulator and from field TELEMETRY bundles.",
+  "type": "object",
+  "required": ["t", "speed", "paused", "nodes", "links", "lora", "events", "stats"],
+  "properties": {
+    "t": {"type": "number", "description": "seconds since the scenario started"},
+    "speed": {"type": "number"},
+    "paused": {"type": "boolean"},
+    "nodes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "role", "sa", "x", "y", "up", "battery_pct", "shards", "used_bytes"],
+        "properties": {
+          "id": {"type": "string"},
+          "role": {"enum": ["hub", "site", "mule", "relay"]},
+          "sa": {"type": ["string", "null"]},
+          "x": {"type": "number", "description": "metres, schematic plane (no basemap)"},
+          "y": {"type": "number"},
+          "up": {"type": "boolean"},
+          "battery_pct": {"type": ["number", "null"]},
+          "shards": {"type": "integer"},
+          "used_bytes": {"type": "integer"}
+        }
+      }
+    },
+    "links": {"type": "array", "items": {"type": "array", "items": {"type": "string"}, "minItems": 2, "maxItems": 2}},
+    "lora": {"type": "array", "items": {"type": "string"}},
+    "events": {"type": "array", "items": {"type": "string"}, "description": "recent log lines, each starting with [hh:mm:ss]"},
+    "stats": {
+      "type": "object",
+      "required": ["sent", "delivered", "in_transit", "not_delivered"]
+    }
+  }
+}
