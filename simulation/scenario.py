@@ -7,7 +7,8 @@ from typing import Any
 import yaml
 
 from node.bundle import Priority
-from node.core import NodeConfig, Role
+from node.core import NodeConfig
+from node.pki import Role
 from simulation.mobility import Mobility, Route, Static
 from simulation.radio_model import RadioParams
 

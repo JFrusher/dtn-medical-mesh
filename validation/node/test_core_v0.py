@@ -1,8 +1,9 @@
 import cbor2
 
 from node.bundle import Priority, decode_bundle, encode_shard
-from node.core import NodeConfig, NodeCore, Role
+from node.core import NodeConfig, NodeCore
 from node.events import ContactUp, Deliver, FrameReceived, Store
+from node.pki import Role
 from validation.node.helpers import (
     W,
     connect,

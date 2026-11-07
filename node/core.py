@@ -7,7 +7,6 @@ State is rebuilt from storage records on boot, so a power cut loses nothing comm
 from collections import Counter
 from collections.abc import Mapping
 from dataclasses import dataclass
-from enum import Enum
 
 import cbor2
 
@@ -28,18 +27,12 @@ from node.events import (
     Store,
 )
 from node.hw.radio import RadioKind
+from node.pki import Role
 
 T_SHARDS = "shards"
 T_ACKS = "acks"
 T_ORIGIN = "origin"  # bundles injected here, awaiting a delivery ACK
 T_DELIVERED = "delivered"  # bundles handed to the attached endpoint
-
-
-class Role(Enum):
-    HUB = "hub"
-    SITE = "site"
-    MULE = "mule"
-    RELAY = "relay"
 
 
 class StorageFull(Exception):

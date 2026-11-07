@@ -2,7 +2,8 @@ from dataclasses import replace
 
 import pytest
 
-from node.core import NodeConfig, NodeCore, Role
+from node.core import NodeConfig, NodeCore
+from node.pki import Role
 from validation.node.helpers import frame, inject, make_shards, shard_msg
 
 

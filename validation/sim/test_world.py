@@ -2,7 +2,8 @@ from pathlib import Path
 
 import pytest
 
-from node.core import NodeConfig, Role
+from node.core import NodeConfig
+from node.pki import Role
 from simulation.mobility import Route, Static
 from simulation.scheduler import Scheduler
 from simulation.world import World

@@ -1,8 +1,9 @@
 import pytest
 
 from node.bundle import Priority, Shard
-from node.core import NodeConfig, NodeCore, Role, StorageFull
+from node.core import NodeConfig, NodeCore, StorageFull
 from node.events import Delete
+from node.pki import Role
 from validation.node.helpers import frame, inject, make_shards, records, shard_msg
 
 SHARD = 1024  # make_shards(size=4096) with k=4 gives 1024-byte routine shards

@@ -107,7 +107,7 @@ Goal: in the emulator, a clinic endpoint sends one text note and the hospital en
 
 | ID | Step | Files | Verify |
 |---|---|---|---|
-| P3.S01 | CA tooling: offline root, hub issuing key, CBOR certificates (node_id, role, SA, pubkey, not_before/after), P-256 signatures. | `node/pki.py`, `tools/ca.py`, tests | `uv run pytest validation/node/test_pki.py` |
+| P3.S01 | Certificates: offline root → hub certs → node certs; CBOR, P-256, 14-day validity, revocation by subject. (A real CA command-line tool moves to H1; the emulator provisions with the same `node/pki.py` functions.) | `node/pki.py`, `node/crypto.py`, tests | `uv run pytest validation/node/test_pki.py` |
 | P3.S02 | Provisioning in the sim: each virtual node gets its SE key and certificate at scenario start. | `simulation/provision.py` | `uv run pytest validation/e2e` |
 | P3.S03 | Outer header signature by the injecting site node's SE; relays drop shards with a missing, invalid or expired signature. | `node/core.py`, tests | `uv run pytest validation/node/test_outer_sig.py` |
 | P3.S04 | Peer authentication on `ContactUp` (certificate exchange; check validity and revocation). | `node/core.py`, tests | same |

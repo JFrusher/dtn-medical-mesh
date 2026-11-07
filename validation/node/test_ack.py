@@ -1,7 +1,8 @@
 import pytest
 
-from node.core import NodeConfig, NodeCore, Role
+from node.core import NodeConfig, NodeCore
 from node.events import Delete, Delivered, EndpointAck
+from node.pki import Role
 from validation.node.helpers import connect, frame, frames, inject, make_shards, records, shard_msg
 
 
