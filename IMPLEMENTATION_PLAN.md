@@ -61,7 +61,7 @@ docs/
 
 | ID | Step | Files | Verify |
 |---|---|---|---|
-| P0.S01 | Scaffold the uv project: Python 3.11+, `pyproject.toml` with ruff, mypy strict, pytest (`testpaths=["validation"]`). Add a `LICENSE` file (Apache-2.0) and empty packages `node`, `endpoint`, `interface`, `simulation`. | `pyproject.toml`, `LICENSE`, `*/__init__.py` | `uv run pytest -q` (0 tests, exit 0) |
+| P0.S01 | Scaffold the uv project: Python 3.11+, `pyproject.toml` with ruff, mypy strict, pytest (`testpaths=["validation"]`). Add a `LICENSE` file (Apache-2.0) and empty packages `node`, `endpoint`, `interface`, `simulation`. | `pyproject.toml`, `LICENSE`, `*/__init__.py` | `uv run ruff check . && uv run mypy .` (pytest has nothing to collect yet) |
 | P0.S02 | Add dependencies: `cryptography`, `pynacl`, `cbor2`, `zfec`, `sqlcipher3` (binary wheel), `fastapi`, `uvicorn`, `pyyaml`, `hypothesis`. Add a smoke test that imports each one and opens an in-memory SQLCipher DB. *If no SQLCipher wheel exists for the platform, stop and report back; don't silently fall back.* | `pyproject.toml`, `uv.lock`, `validation/test_deps.py` | `uv run pytest validation/test_deps.py` |
 | P0.S03 | GitHub Actions CI: uv sync, ruff, mypy, pytest. | `.github/workflows/ci.yml` | CI green on push |
 | P0.S04 | `docs/requirements.md` with `REQ-*` IDs taken from the spec (security, durability, routing, time, UX, safety). Add a pytest marker `req` registered in `conftest.py`. | `docs/requirements.md`, `validation/conftest.py` | `uv run pytest -q` |
