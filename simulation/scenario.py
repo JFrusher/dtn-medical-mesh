@@ -9,6 +9,7 @@ import yaml
 from node.bundle import Priority
 from node.core import NodeConfig
 from node.pki import Role
+from simulation.faults import FaultSpec
 from simulation.mobility import Mobility, Route, Static
 from simulation.radio_model import RadioParams
 
@@ -49,6 +50,7 @@ class Scenario:
     nodes: tuple[NodeSpec, ...]
     endpoints: tuple[EndpointSpec, ...]
     messages: tuple[MessageSpec, ...]
+    faults: tuple[FaultSpec, ...] = ()
 
 
 def load_scenario(name_or_path: str) -> Scenario:
@@ -63,9 +65,8 @@ def load_scenario(name_or_path: str) -> Scenario:
 
 
 def _parse(raw: dict[str, Any]) -> Scenario:
-    _keys(
-        raw, "scenario", {"name", "duration_s", "tick_s", "radio", "nodes", "endpoints", "messages"}
-    )
+    allowed = {"name", "duration_s", "tick_s", "radio", "nodes", "endpoints", "messages", "faults"}
+    _keys(raw, "scenario", allowed)
     nodes = tuple(_node(n) for n in raw["nodes"])
     node_ids = {n.config.node_id for n in nodes}
     endpoints = tuple(_endpoint(e, node_ids) for e in raw["endpoints"])
@@ -78,6 +79,7 @@ def _parse(raw: dict[str, Any]) -> Scenario:
         nodes=nodes,
         endpoints=endpoints,
         messages=tuple(_message(m, names) for m in raw.get("messages", [])),
+        faults=tuple(FaultSpec.parse(f, node_ids) for f in raw.get("faults", [])),
     )
 
 

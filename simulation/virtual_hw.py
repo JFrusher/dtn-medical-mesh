@@ -46,16 +46,23 @@ class SoftwareSecureElement:
 
 
 class VirtualRtc:
-    """Wall clock derived from scheduler time. Faults are added in P5.S04."""
+    """Wall clock derived from scheduler time, with injectable faults (spec §12.2)."""
 
     def __init__(self, scheduler: Scheduler) -> None:
         self._scheduler = scheduler
         self.failed = False
+        self.offset_s = 0.0
+        self.drift_ppm = 0.0
 
     def read(self) -> float:
         if self.failed:
             raise RtcError("virtual RTC failed")
-        return SIM_EPOCH + self._scheduler.now
+        now = self._scheduler.now
+        return SIM_EPOCH + now + self.offset_s + now * self.drift_ppm * 1e-6
+
+    def reset_to_epoch(self) -> None:
+        """Coin cell dead and power lost: the clock restarts from 1970."""
+        self.offset_s = -(SIM_EPOCH + self._scheduler.now)
 
 
 class MainsPower:

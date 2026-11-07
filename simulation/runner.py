@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
 
+from simulation import faults
 from simulation.endpoints import VirtualEndpoint
 from simulation.provision import provision, publish_directory
 from simulation.scenario import MessageSpec, Scenario, load_scenario
@@ -52,6 +53,8 @@ def run(scenario: Scenario, seed: int, data_dir: Path, echo: bool = False) -> Ru
 
     for m in scenario.messages:
         scheduler.schedule(m.at_s, partial(send, m))
+    for f in scenario.faults:
+        scheduler.schedule(f.at_s, partial(faults.apply, world, f))
     scheduler.run_until(scenario.duration_s)
     return RunResult(scenario, world, endpoints, lines)
 
