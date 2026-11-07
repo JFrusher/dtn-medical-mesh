@@ -233,12 +233,12 @@ class NodeCore:
                     raise FormatError("summary docs must be a map")
                 self.peer_docs[peer_id] = {str(k): int(v) for k, v in docs.items()}
                 follow_up = SetTimer(name=f"exact:{peer_id}", at_mono=self._mono + EXACT_AFTER_S)
-                owed = [
-                    self._send(peer_id, {"t": "receipt", "r": encode_receipt(r)})
-                    for r in self.outbox.values()
-                    if r.sender == peer_id
+                return [
+                    follow_up,
+                    *self._pay_receipts_owed(peer_id),
+                    *self._renew(peer_id, peer_cert),
+                    *self._offer(peer_id),
                 ]
-                return [follow_up, *owed, *self._renew(peer_id, peer_cert), *self._offer(peer_id)]
             if kind == "receipt":
                 return self._on_receipt(decode_receipt(_bytes(msg["r"])))
             if kind == "exact":
@@ -543,6 +543,17 @@ class NodeCore:
             return actions + [self._send(sender, {"t": "receipt", "r": encoded})]
         self.outbox[self.ledger_head] = r
         return actions + [Store(table=T_OUTBOX, key=self.ledger_head, value=encoded)]
+
+    def _pay_receipts_owed(self, peer_id: str) -> list[Action]:
+        """Hand over receipts kept since an earlier contact dropped. If one is lost again the
+        sender merely keeps its copy, so each is sent once."""
+        actions: list[Action] = []
+        for key, r in sorted(self.outbox.items()):
+            if r.sender == peer_id:
+                del self.outbox[key]
+                actions.append(self._send(peer_id, {"t": "receipt", "r": encode_receipt(r)}))
+                actions.append(Delete(table=T_OUTBOX, key=key))
+        return actions
 
     def _on_receipt(self, r: Receipt) -> list[Action]:
         if r.sender != self.config.node_id:

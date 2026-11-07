@@ -50,7 +50,9 @@ def test_receipt_owed_after_link_drop_is_delivered_at_next_meeting() -> None:
     # meeting again: the hub sends what it owes as soon as it accepts M's summary
 
     owed = [f for f in frames(frame(hub, "M", summary_from("M", "H"))) if f["t"] == "receipt"]
-    assert len(owed) == 1
+    assert len(owed) == 1 and hub.outbox == {}
+    again = [f for f in frames(frame(hub, "M", summary_from("M", "H"))) if f["t"] == "receipt"]
+    assert again == []
 
 
 @pytest.mark.req("REQ-PROTO-05")
