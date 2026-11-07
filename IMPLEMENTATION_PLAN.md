@@ -66,7 +66,7 @@ docs/
 | P0.S03 | GitHub Actions CI: uv sync, ruff, mypy, pytest. | `.github/workflows/ci.yml` | CI green on push |
 | P0.S04 | `docs/requirements.md` with `REQ-*` IDs taken from the spec (security, durability, routing, time, UX, safety). Add a pytest marker `req` registered in `conftest.py`. | `docs/requirements.md`, `validation/conftest.py` | `uv run pytest -q` |
 | P0.S05 | Import-boundary test: `node.*` never imports `endpoint.*` or `interface.*`; `node`, `endpoint` and `interface` never import `simulation` (where seeded entropy lives). | `validation/test_boundaries.py` | `uv run pytest validation/test_boundaries.py` |
-| P0.S06 | Hardware interfaces as `Protocol`s: `SecureElement` (sign, public_key, read_slot), `Rtc` (now), `PowerSource` (state, low_power_signal), `Radio` (kind, range, bandwidth), `Entropy` (bytes). Add an `OsEntropy` implementation. | `node/hw/*.py` | `uv run mypy node` |
+| P0.S06 | Hardware interfaces as `Protocol`s: `SecureElement` (sign, public_key, read_slot), `Rtc` (read), `PowerSource` (state; power loss arrives as a `PowerLow` event), `Radio` (kind, max_frame_bytes, send; range/bandwidth live in the world model), `Entropy` (random_bytes). Add an `OsEntropy` implementation. | `node/hw/*.py` | `uv run mypy node` |
 | P0.S07 | Events and actions: `ContactUp/Down`, `FrameReceived`, `Timer`, `PowerLow`, `Inject`; `SendFrame`, `Store`, `Delete`, `SetTimer`, `Deliver`, `Emit(telemetry)`. Frozen dataclasses. | `node/events.py` | `uv run mypy node` |
 
 ## Phase 1 — Walking skeleton (one message end to end)
