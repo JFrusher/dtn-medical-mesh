@@ -3,9 +3,10 @@
   "title": "dtn-medical-mesh telemetry",
   "description": "One snapshot of the mesh for the live map (spec §10.3). Same shape from the emulator and from field TELEMETRY bundles.",
   "type": "object",
-  "required": ["t", "speed", "paused", "nodes", "links", "lora", "events", "stats"],
+  "required": ["t", "geo", "speed", "paused", "nodes", "links", "lora", "events", "stats"],
   "properties": {
     "t": {"type": "number", "description": "seconds since the scenario started"},
+    "geo": {"type": ["array", "null"], "description": "[lat, lon] origin of x/y metres; null = schematic plane"},
     "speed": {"type": "number"},
     "paused": {"type": "boolean"},
     "nodes": {

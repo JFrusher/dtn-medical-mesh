@@ -39,3 +39,13 @@ def test_rejects_duplicate_node(tmp_path: Path) -> None:
     w.add_node(NodeConfig("A", Role.MULE, None), Static((0, 0)))
     with pytest.raises(ValueError):
         w.add_node(NodeConfig("A", Role.MULE, None), Static((0, 0)))
+
+
+def test_route_waits_only_at_stops() -> None:
+    r = Route(waypoints=((0, 0), (50, 0), (100, 0)), speed=10, dwell_s=7, stops=(0, 2))
+    assert r.position(3) == (0, 0)  # waiting at stop 0
+    assert r.position(7 + 5) == pytest.approx((50, 0))  # passes through 1 without waiting
+    assert r.position(7 + 6) == pytest.approx((60, 0))
+    assert r.position(7 + 10 + 3) == (100, 0)  # waiting at stop 2
+    with pytest.raises(ValueError):
+        Route(waypoints=((0, 0), (1, 0)), speed=1, stops=(5,))

@@ -28,6 +28,7 @@ class Stats(TypedDict):
 
 class Telemetry(TypedDict):
     t: float  # seconds since the scenario started
+    geo: tuple[float, float] | None  # [lat, lon] origin of x/y metres; None = schematic plane
     speed: float
     paused: bool
     nodes: list[NodeView]

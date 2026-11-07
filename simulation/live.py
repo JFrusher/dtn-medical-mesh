@@ -70,6 +70,7 @@ class LiveSim:
         statuses = [e.status(b) for e in self.r.endpoints.values() for b in e.sent]
         return {
             "t": self.now,
+            "geo": self.r.scenario.geo,
             "speed": self.speed,
             "paused": self.paused,
             "nodes": nodes,  # type: ignore[typeddict-item]

@@ -2,6 +2,7 @@ from pathlib import Path
 
 import pytest
 
+from simulation.geo import to_latlon
 from simulation.scenario import ScenarioError, load_scenario
 
 
@@ -56,3 +57,23 @@ workload:
 def test_shipped_scenarios_load(name: str) -> None:
     s = load_scenario(name)
     assert s.nodes and s.duration_s > 0
+
+
+def test_geo_scenarios_take_lat_lon(tmp_path: Path) -> None:
+    f = tmp_path / "g.yaml"
+    f.write_text("""
+name: g
+duration_s: 10
+geo: {lat: -3.37, lon: 36.69}
+nodes:
+  - {id: H, role: hub, sa: SA_H, at: [-3.37, 36.69]}
+  - {id: C, role: site, sa: SA_C, at: [-3.38, 36.70]}
+endpoints: []
+""")
+    s = load_scenario(str(f))
+    assert s.geo == (-3.37, 36.69)
+    hx, hy = s.nodes[0].mobility.position(0)
+    cx, cy = s.nodes[1].mobility.position(0)
+    assert (hx, hy) == (0, 0)
+    assert 1100 < cx < 1120 and -1110 < cy < -1100  # ~1.1 km east, ~1.1 km south
+    assert to_latlon((cx, cy), s.geo) == pytest.approx((-3.38, 36.70))

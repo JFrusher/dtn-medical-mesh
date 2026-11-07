@@ -1,5 +1,6 @@
 """Scenario files (YAML) -> typed, validated scenario. Unknown keys are errors."""
 
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
@@ -11,6 +12,7 @@ from node.bundle import Priority
 from node.core import NodeConfig
 from node.pki import Role
 from simulation.faults import FaultSpec
+from simulation.geo import LatLon, to_metres
 from simulation.hostile import ATTACKS
 from simulation.mobility import Mobility, Route, Static
 from simulation.radio_model import RadioParams
@@ -62,6 +64,7 @@ class Scenario:
     endpoints: tuple[EndpointSpec, ...]
     messages: tuple[MessageSpec, ...]
     faults: tuple[FaultSpec, ...] = ()
+    geo: LatLon | None = None  # origin; when set, the file's coordinates are [lat, lon]
 
 
 def load_scenario(name_or_path: str) -> Scenario:
@@ -86,9 +89,19 @@ def _parse(raw: dict[str, Any]) -> Scenario:
         "messages",
         "workload",
         "faults",
+        "geo",
     }
     _keys(raw, "scenario", allowed)
-    nodes = tuple(_node(n) for n in raw["nodes"])
+    geo = raw.get("geo")
+    origin: LatLon | None = None
+    if geo is not None:
+        _keys(geo, "geo", {"lat", "lon"})
+        origin = (float(geo["lat"]), float(geo["lon"]))
+
+    def point(p: list[float]) -> tuple[float, float]:
+        return to_metres(_point(p), origin) if origin else _point(p)
+
+    nodes = tuple(_node(n, point) for n in raw["nodes"])
     node_ids = {n.config.node_id for n in nodes}
     endpoints = tuple(_endpoint(e, node_ids) for e in raw["endpoints"])
     names = {e.name for e in endpoints}
@@ -97,6 +110,7 @@ def _parse(raw: dict[str, Any]) -> Scenario:
         duration_s=float(raw["duration_s"]),
         tick_s=float(raw.get("tick_s", 1.0)),
         radio=RadioParams(**raw.get("radio", {})),
+        geo=origin,
         nodes=nodes,
         endpoints=endpoints,
         messages=tuple(
@@ -110,7 +124,7 @@ def _parse(raw: dict[str, Any]) -> Scenario:
     )
 
 
-def _node(raw: dict[str, Any]) -> NodeSpec:
+def _node(raw: dict[str, Any], point: Callable[[list[float]], tuple[float, float]]) -> NodeSpec:
     _keys(
         raw,
         f"node {raw.get('id')}",
@@ -132,14 +146,15 @@ def _node(raw: dict[str, Any]) -> NodeSpec:
     if ("at" in raw) == ("route" in raw):
         raise ValueError(f"node {raw['id']}: give exactly one of 'at' or 'route'")
     if "at" in raw:
-        return NodeSpec(config, Static(_point(raw["at"])), battery, attacks, registered)
+        return NodeSpec(config, Static(point(raw["at"])), battery, attacks, registered)
     r = raw["route"]
-    _keys(r, f"route of {raw['id']}", {"waypoints", "speed", "dwell_s", "start_s"})
+    _keys(r, f"route of {raw['id']}", {"waypoints", "speed", "dwell_s", "start_s", "stops"})
     mobility = Route(
-        waypoints=tuple(_point(p) for p in r["waypoints"]),
+        waypoints=tuple(point(p) for p in r["waypoints"]),
         speed=float(r["speed"]),
         dwell_s=float(r.get("dwell_s", 0)),
         start_s=float(r.get("start_s", 0)),
+        stops=tuple(int(i) for i in r["stops"]) if "stops" in r else None,
     )
     return NodeSpec(config, mobility, battery, attacks, registered)
 
