@@ -1,5 +1,7 @@
 """Build valid shards and frames for node tests without any endpoint crypto."""
 
+import hashlib
+
 import cbor2
 
 from node import erasure, merkle
@@ -20,7 +22,7 @@ def make_shards(
     size: int = 4096,
 ) -> list[Shard]:
     cls = PRIORITY_CLASSES[priority]
-    data = (tag * size)[:size]
+    data = hashlib.shake_256(tag).digest(size)  # varied, so no two blocks are equal
     blocks = erasure.encode(data, cls.k, cls.m)
     root, proofs = merkle.build(blocks)
     h = Header(

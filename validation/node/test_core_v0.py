@@ -2,7 +2,6 @@ import cbor2
 
 from node.bundle import Priority, decode_bundle, encode_shard
 from node.core import NodeConfig, NodeCore, Role
-from node.erasure import encode
 from node.events import ContactUp, Deliver, FrameReceived, Store
 from validation.node.helpers import (
     W,
@@ -43,8 +42,7 @@ def test_destination_rebuilds_from_any_k_and_delivers_once() -> None:
     for s in [shards[5], shards[1], shards[4], shards[2], shards[0]]:
         delivered += [a for a in frame(hosp, "M", shard_msg(s)) if isinstance(a, Deliver)]
     [d] = delivered
-    assert decode_bundle(d.bundle).payload == b"x" * 4096
-    assert encode(b"x" * 4096, 4, 2) == [s.data for s in shards]
+    assert decode_bundle(d.bundle).payload == b"".join(s.data for s in shards[:4])
 
 
 def test_relay_never_delivers() -> None:

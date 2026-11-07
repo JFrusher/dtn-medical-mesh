@@ -11,7 +11,7 @@ from enum import Enum
 
 import cbor2
 
-from node import erasure
+from node import erasure, merkle
 from node.bundle import Bundle, FormatError, Shard, decode_shard, encode_bundle, encode_shard
 from node.events import (
     Action,
@@ -130,6 +130,8 @@ class NodeCore:
         if len(bids) != 1:
             raise ValueError("an injection carries the shards of exactly one bundle")
         bid = bids.pop()
+        if not all(_intact(s) for s in shards):
+            raise ValueError("endpoint injected a shard that fails verification")
         if bid in self.acks or any(s.shard_id in self.shards for s in shards):
             return []
         actions = self._make_room(shards[0], sum(len(s.data) for s in shards))
@@ -146,6 +148,9 @@ class NodeCore:
         if source in self.peer_has:
             self.peer_has[source].add(sid)
         if sid in self.shards or bid in self.acks:
+            return []
+        if not _intact(shard):
+            self.dropped["corrupt"] += 1
             return []
         evictions = self._make_room(shard, len(shard.data))
         if evictions is None:
@@ -232,6 +237,14 @@ class NodeCore:
 
     def _send(self, peer_id: str, msg: Mapping[str, object]) -> SendFrame:
         return SendFrame(peer_id=peer_id, radio=RadioKind.WIFI, frame=cbor2.dumps(msg))
+
+
+def _intact(shard: Shard) -> bool:
+    """Shard data matches its header's Merkle root and expected length (REQ-DUR-01)."""
+    h = shard.header
+    return len(shard.data) * h.k == h.size_bucket and merkle.verify(
+        shard.data, shard.index, h.k + h.m, list(shard.proof), h.merkle_root
+    )
 
 
 def _bytes(value: object) -> bytes:
