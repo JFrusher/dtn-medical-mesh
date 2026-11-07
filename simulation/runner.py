@@ -10,6 +10,7 @@ from pathlib import Path
 from simulation import faults
 from simulation.endpoints import VirtualEndpoint
 from simulation.hostile import HostileCore
+from simulation.metrics import evaluate
 from simulation.provision import provision, publish_directory
 from simulation.scenario import MessageSpec, Scenario, load_scenario
 from simulation.scheduler import Scheduler
@@ -68,10 +69,20 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("scenario")
     parser.add_argument("--seed", type=int, default=1)
+    parser.add_argument("--out", type=Path, help="write report.json and report.md here")
+    parser.add_argument("--quiet", action="store_true", help="no event log, report only")
     args = parser.parse_args(argv)
+    scenario = load_scenario(args.scenario)
     with tempfile.TemporaryDirectory() as tmp:
-        run(load_scenario(args.scenario), args.seed, Path(tmp), echo=True)
-    return 0
+        result = run(scenario, args.seed, Path(tmp), echo=not args.quiet)
+        report = evaluate(result, args.seed)
+    if args.out:
+        out = args.out / f"{scenario.name}-{args.seed}"
+        out.mkdir(parents=True, exist_ok=True)
+        (out / "report.json").write_text(report.to_json())
+        (out / "report.md").write_text(report.to_markdown())
+    print(report.to_markdown())
+    return 1 if report.violations else 0
 
 
 if __name__ == "__main__":

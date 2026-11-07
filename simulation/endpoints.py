@@ -17,6 +17,8 @@ from simulation.world import SimNode, World
 class Received:
     sender: str | None  # directory name of the signing endpoint; None if not in the directory
     content: bytes
+    bundle_id: bytes
+    at_s: float  # simulation time it was opened
 
 
 @dataclass
@@ -31,6 +33,7 @@ class VirtualEndpoint:
     sent: dict[bytes, Outgoing] = field(default_factory=dict)
     inbox: list["Received"] = field(default_factory=list)
     pending: list[tuple[bytes, ...]] = field(default_factory=list)  # site node was down
+    sent_content: dict[bytes, tuple[bytes, Priority, float]] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if self.site.config.sa is None:
@@ -62,6 +65,7 @@ class VirtualEndpoint:
             self.pending.append(encoded)  # the laptop keeps it until its node is back
         h = shards[0].header
         out = Outgoing(to, h.bundle_id, h.created, h.lifetime_s)
+        self.sent_content[h.bundle_id] = (content, priority, self.world.scheduler.now)
         self.sent[h.bundle_id] = out
         expires_at = out.expires_ms / 1000 - SIM_EPOCH
         self.world.scheduler.schedule(expires_at + 0.001, partial(self._check_expiry, out))
@@ -90,7 +94,13 @@ class VirtualEndpoint:
         except CryptoError:
             return  # addressed to another endpoint in this service area
         by_key = {e.signing_public: e.name for e in self.directory.values()}
-        self.inbox.append(Received(by_key.get(opened.signer), opened.content))
+        received = Received(
+            by_key.get(opened.signer),
+            opened.content,
+            bundle.header.bundle_id,
+            self.world.scheduler.now,
+        )
+        self.inbox.append(received)
         self.world.log(self.world.scheduler.now, f"OPENED by {self.name}")
         bid = bundle.header.bundle_id
         self.world.dispatch(self.site, partial(EndpointAck, bundle_id=bid))

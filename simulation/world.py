@@ -107,6 +107,8 @@ class World:
         self.links: dict[frozenset[str], Link] = {}
         self._connecting: set[frozenset[str]] = set()
         self.lost_frames = 0
+        self.wifi_bytes = 0
+        self.peak_bytes: dict[str, int] = defaultdict(int)
         self.lora_over_budget = 0
         self._duty: dict[str, DutyCycle] = defaultdict(DutyCycle)
         self.log: LogFn = log or (lambda t, msg: None)
@@ -195,6 +197,7 @@ class World:
         match action:
             case Store() | Delete():
                 node.storage.apply(action)
+                self.peak_bytes[node.id] = max(self.peak_bytes[node.id], node.core.used_bytes)
             case SendFrame():
                 self._transmit(node.id, action)
             case Deliver():
@@ -224,6 +227,7 @@ class World:
         if action.radio is RadioKind.LORA:
             self._broadcast_lora(src, action)
             return
+        self.wifi_bytes += len(action.frame)
         link = self.links.get(frozenset((src, action.peer_id)))
         if link is None or not link.up:
             self.lost_frames += 1
