@@ -22,6 +22,7 @@ from node.bundle import (
     encode_ack,
     encode_bundle,
     encode_shard,
+    shard_id,
 )
 from node.crypto import verify_p256
 from node.events import (
@@ -133,6 +134,7 @@ class NodeCore:
         self.peer_has: dict[str, set[bytes]] = {}
         self.peer_acks: dict[str, set[bytes]] = {}
         self.peer_certs: dict[str, set[str]] = {}
+        self.peer_sa: dict[str, str | None] = {}
         self.peer_docs: dict[str, dict[str, int]] = {}
 
     def handle(self, event: Event) -> list[Action]:
@@ -149,6 +151,7 @@ class NodeCore:
                     self.peer_acks,
                     self.peer_certs,
                     self.peer_docs,
+                    self.peer_sa,
                 ):
                     table.pop(event.peer_id, None)
                 return []
@@ -183,6 +186,7 @@ class NodeCore:
                     self.dropped["unauthenticated_peer"] += 1
                     return []
                 self.peer_bloom[peer_id] = Bloom.decode(_bytes(msg["bloom"]))
+                self.peer_sa[peer_id] = peer_cert.sa
                 self.peer_has[peer_id] = set()
                 self.peer_acks[peer_id] = set()
                 self.peer_certs[peer_id] = {str(i) for i in msg["certs"]}
@@ -304,7 +308,23 @@ class NodeCore:
         actions += [self._send(peer_id, {"t": "ack", "a": encode_ack(a)}) for a in new_acks]
         has = self.peer_has[peer_id]
         missing = [s for i, s in self.shards.items() if i not in has and b"s" + i not in bloom]
-        missing.sort(key=lambda s: (s.header.priority, s.header.created, s.shard_id))
+        peer_sa = self.peer_sa.get(peer_id)
+
+        def still_needed_by_peer(h: Header) -> int:
+            if h.dst_sa != peer_sa:
+                return h.k
+            held = sum(1 for i in range(h.k + h.m) if _held(shard_id(h.bundle_id, i), has, bloom))
+            return max(h.k - held, 0)
+
+        missing.sort(
+            key=lambda s: (
+                s.header.priority,
+                still_needed_by_peer(s.header),
+                s.header.size_bucket,
+                s.header.created,
+                s.shard_id,
+            )
+        )
         has.update(s.shard_id for s in missing)
         actions += self._certs_for(peer_id, {s.header.injector for s in missing})
         return actions + [
@@ -558,6 +578,10 @@ class NodeCore:
 
     def _send(self, peer_id: str, msg: Mapping[str, object]) -> SendFrame:
         return SendFrame(peer_id=peer_id, radio=RadioKind.WIFI, frame=cbor2.dumps(msg))
+
+
+def _held(sid: bytes, has: set[bytes], bloom: Bloom) -> bool:
+    return sid in has or b"s" + sid in bloom
 
 
 def _summary_signing_bytes(msg: Mapping[str, object]) -> bytes:
