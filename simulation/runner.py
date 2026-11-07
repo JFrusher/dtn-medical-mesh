@@ -12,7 +12,7 @@ from simulation.endpoints import VirtualEndpoint
 from simulation.provision import provision, publish_directory
 from simulation.scenario import MessageSpec, Scenario, load_scenario
 from simulation.scheduler import Scheduler
-from simulation.virtual_hw import SeededEntropy
+from simulation.virtual_hw import Battery, SeededEntropy
 from simulation.world import World
 
 
@@ -36,7 +36,8 @@ def run(scenario: Scenario, seed: int, data_dir: Path, echo: bool = False) -> Ru
     scheduler = Scheduler(seed)
     world = World(scheduler, data_dir, scenario.radio, scenario.tick_s, log)
     for spec in scenario.nodes:
-        world.add_node(spec.config, spec.mobility)
+        battery = Battery(**spec.battery) if spec.battery else None
+        world.add_node(spec.config, spec.mobility, battery)
     root = provision(list(world.nodes.values()), seed)
     world.start()
     endpoints = {

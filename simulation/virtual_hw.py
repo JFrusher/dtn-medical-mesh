@@ -1,6 +1,8 @@
 """Virtual stand-ins for node hardware (implement the node.hw interfaces)."""
 
+import math
 import random
+from dataclasses import dataclass
 
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import ec
@@ -68,3 +70,45 @@ class VirtualRtc:
 class MainsPower:
     def state(self) -> PowerState:
         return PowerState(external_power=True, battery_pct=None)
+
+
+@dataclass
+class Battery:
+    """Battery-backed supply for solar or vehicle nodes (spec §11.2, §12.2).
+
+    solar: charged by a day curve (peak at noon, nothing 18:00-06:00).
+    vehicle: charged while the engine runs (the vehicle is moving), otherwise the UPS drains.
+    """
+
+    kind: str  # "solar" or "vehicle"
+    capacity_wh: float
+    load_w: float
+    solar_peak_w: float = 0.0
+    charge_w: float = 10.0  # vehicle alternator via the DC-DC converter
+    level_wh: float = -1.0  # starts full
+
+    def __post_init__(self) -> None:
+        if self.kind not in ("solar", "vehicle"):
+            raise ValueError(f"unknown power kind {self.kind!r}")
+        if self.level_wh < 0:
+            self.level_wh = self.capacity_wh
+
+    def external(self, t: float, moving: bool) -> bool:
+        return moving if self.kind == "vehicle" else self.solar_w(t) > 0
+
+    def solar_w(self, t: float) -> float:
+        hour = (t / 3600) % 24
+        return self.solar_peak_w * max(0.0, math.sin(math.pi * (hour - 6) / 12))
+
+    def step(self, t: float, dt: float, moving: bool) -> None:
+        if self.kind == "vehicle":
+            supply = self.charge_w if moving else 0.0
+        else:
+            supply = self.solar_w(t)
+        self.level_wh = min(
+            self.capacity_wh, max(0.0, self.level_wh + (supply - self.load_w) * dt / 3600)
+        )
+
+    @property
+    def pct(self) -> float:
+        return 100 * self.level_wh / self.capacity_wh

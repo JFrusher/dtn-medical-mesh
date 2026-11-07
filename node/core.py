@@ -42,6 +42,7 @@ from node.events import (
     Event,
     FrameReceived,
     Inject,
+    PowerLow,
     PublishDirectory,
     Revoke,
     SendFrame,
@@ -220,6 +221,9 @@ class NodeCore:
                 return self._inject([decode_shard(s) for s in event.shards])
             case EndpointAck():
                 return self._endpoint_ack(event.bundle_id)
+            case PowerLow():
+                # The UPS is holding us up: sign receipts for everything stored now.
+                return [a for peer in sorted(self._unreceipted) for a in self._issue_receipt(peer)]
             case Timer() if event.name.startswith("receipt:"):
                 return self._issue_receipt(event.name.removeprefix("receipt:"))
             case Timer() if event.name.startswith("exact:"):

@@ -20,6 +20,7 @@ from node.events import (
     Emit,
     Event,
     FrameReceived,
+    PowerLow,
     SendFrame,
     SetTimer,
     Store,
@@ -39,7 +40,10 @@ from simulation.radio_model import (
     transfer_s,
 )
 from simulation.scheduler import Scheduler
-from simulation.virtual_hw import SeededEntropy, SoftwareSecureElement, VirtualRtc
+from simulation.virtual_hw import Battery, SeededEntropy, SoftwareSecureElement, VirtualRtc
+
+POWER_TICK_S = 60.0
+POWER_ON_PCT = 10.0
 
 LogFn = Callable[[float, str], None]
 
@@ -61,6 +65,8 @@ class SimNode:
     db_path: Path | None = None
     up: bool = False
     boots: int = 0
+    battery: Battery | None = None  # None: mains powered
+    external_power: bool = True
 
     def boot(self, now: float) -> None:
         """Start the node from what is on disk (also used after a power cut)."""
@@ -101,13 +107,16 @@ class World:
         self._duty: dict[str, DutyCycle] = defaultdict(DutyCycle)
         self.log: LogFn = log or (lambda t, msg: None)
 
-    def add_node(self, config: NodeConfig, mobility: Mobility) -> SimNode:
+    def add_node(
+        self, config: NodeConfig, mobility: Mobility, battery: Battery | None = None
+    ) -> SimNode:
         if config.node_id in self.nodes:
             raise ValueError(f"duplicate node id {config.node_id}")
         se = SoftwareSecureElement(SeededEntropy(f"{self.scheduler.seed}:{config.node_id}"))
         storage = Storage(self.data_dir / f"{config.node_id}.db", se.read_slot(STORAGE_KEY_SLOT))
         node = SimNode(config, mobility, storage, VirtualRtc(self.scheduler), se)
         node.db_path = self.data_dir / f"{config.node_id}.db"
+        node.battery = battery
         self.nodes[config.node_id] = node
         return node
 
@@ -141,6 +150,27 @@ class World:
         for node in self.nodes.values():
             node.boot(self.scheduler.now)
         self.scheduler.after(0, self._tick)
+        if any(n.battery for n in self.nodes.values()):
+            self.scheduler.after(0, self._power_tick)
+
+    def _power_tick(self) -> None:
+        """Integrate batteries; signal PowerLow on losing external power; cut or restore."""
+        now, dt = self.scheduler.now, POWER_TICK_S
+        for node in self.nodes.values():
+            b = node.battery
+            if b is None:
+                continue
+            moving = node.mobility.position(now) != node.mobility.position(now + dt)
+            external = b.external(now, moving)
+            if node.up and node.external_power and not external:
+                self.dispatch(node, PowerLow)
+            node.external_power = external
+            b.step(now, dt, moving)
+            if node.up and b.level_wh <= 0:
+                self.power_off(node)
+            elif not node.up and b.pct >= POWER_ON_PCT:
+                self.power_on(node)
+        self.scheduler.after(dt, self._power_tick)
 
     def position(self, node_id: str) -> tuple[float, float]:
         return self.nodes[node_id].mobility.position(self.scheduler.now)
