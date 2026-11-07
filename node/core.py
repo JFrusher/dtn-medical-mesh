@@ -406,7 +406,9 @@ class NodeCore:
 
     def _offer(self, peer_id: str) -> list[Action]:
         """Send a connected peer every revocation, ACK and shard it lacks, most important first."""
-        actions = self._docs_for(peer_id)
+        # Every cert the peer lacks, so it can verify LoRa-borne ACKs and receipts later.
+        actions = self._certs_for(peer_id, set(self.certs))
+        actions += self._docs_for(peer_id)
         bloom = self.peer_bloom[peer_id]
         known_acks = self.peer_acks[peer_id]
         new_acks = [
@@ -627,11 +629,10 @@ class NodeCore:
         if r.sender != self.config.node_id:
             return []
         cert = self.certs.get(r.receiver)
-        if not (
-            cert is not None
-            and self._valid(cert)
-            and verify_p256(cert.pubkey, r.signing_bytes(), r.sig)
-        ):
+        if cert is None:
+            self.dropped["receipt_signer_unknown"] += 1
+            return []
+        if not (self._valid(cert) and verify_p256(cert.pubkey, r.signing_bytes(), r.sig)):
             self.dropped["bad_receipt"] += 1
             return []
         encoded = encode_receipt(r)
@@ -772,6 +773,9 @@ class NodeCore:
         if source in self.peer_acks:
             self.peer_acks[source].add(bid)
         if bid in self.acks:
+            return []
+        if ack.signer not in self.certs:
+            self.dropped["ack_signer_unknown"] += 1  # can't verify yet; it will come over Wi-Fi
             return []
         if not self._ack_authentic(ack):
             self.dropped["bad_ack"] += 1

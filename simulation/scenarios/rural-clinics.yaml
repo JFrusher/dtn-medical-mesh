@@ -1,0 +1,61 @@
+# District hospital, four rural clinics 10-15 km out, supply vans and an ambulance as mules,
+# solar street-light relays on the roads. 72 hours, every payload class.
+name: rural-clinics
+duration_s: 259200
+tick_s: 2
+radio: {wifi_range_m: 100}
+nodes:
+  - {id: HOSPITAL, role: hub, sa: SA_HOSPITAL, at: [0, 0]}
+  - {id: CLINIC_1, role: site, sa: SA_CLINIC_1, at: [12000, 3000]}
+  - {id: CLINIC_2, role: site, sa: SA_CLINIC_2, at: [9000, -8000]}
+  - {id: CLINIC_3, role: site, sa: SA_CLINIC_3, at: [-10000, 6000]}
+  - {id: CLINIC_4, role: site, sa: SA_CLINIC_4, at: [-7000, -9000]}
+  - id: VAN_EAST
+    role: mule
+    route: {waypoints: [[0, 0], [12000, 3000], [9000, -8000]], speed: 14, dwell_s: 900}
+    power: {kind: vehicle, capacity_wh: 20, load_w: 2}
+  - id: VAN_WEST
+    role: mule
+    route: {waypoints: [[0, 0], [-10000, 6000], [-7000, -9000]], speed: 14, dwell_s: 900, start_s: 1800}
+    power: {kind: vehicle, capacity_wh: 20, load_w: 2}
+  - id: AMBULANCE
+    role: mule
+    route: {waypoints: [[0, 0], [9000, -8000]], speed: 20, dwell_s: 600, start_s: 3600}
+  - id: LIGHT_1
+    role: relay
+    at: [6000, 1500]
+    power: {kind: solar, capacity_wh: 30, load_w: 1, solar_peak_w: 6}
+  - id: LIGHT_2
+    role: relay
+    at: [4500, -4000]
+    power: {kind: solar, capacity_wh: 30, load_w: 1, solar_peak_w: 6}
+  - id: LIGHT_3
+    role: relay
+    at: [-5000, 3000]
+    power: {kind: solar, capacity_wh: 30, load_w: 1, solar_peak_w: 6}
+endpoints:
+  - {name: hospital, node: HOSPITAL}
+  - {name: clinic-1, node: CLINIC_1}
+  - {name: clinic-2, node: CLINIC_2}
+  - {name: clinic-3, node: CLINIC_3}
+  - {name: clinic-4, node: CLINIC_4}
+workload:
+  # vitals, notes, photos and critical referrals from every clinic
+  - {from: clinic-1, to: hospital, priority: URGENT, text: vitals, size_bytes: 300, every_s: 10800, end_s: 252000}
+  - {from: clinic-2, to: hospital, priority: URGENT, text: vitals, size_bytes: 300, every_s: 10800, start_s: 1200, end_s: 252000}
+  - {from: clinic-3, to: hospital, priority: URGENT, text: vitals, size_bytes: 300, every_s: 10800, start_s: 2400, end_s: 252000}
+  - {from: clinic-4, to: hospital, priority: URGENT, text: vitals, size_bytes: 300, every_s: 10800, start_s: 3600, end_s: 252000}
+  - {from: clinic-1, to: hospital, priority: ROUTINE, text: note, size_bytes: 2000, every_s: 21600, start_s: 600, end_s: 252000}
+  - {from: clinic-2, to: hospital, priority: ROUTINE, text: note, size_bytes: 2000, every_s: 21600, start_s: 1800, end_s: 252000}
+  - {from: clinic-3, to: hospital, priority: ROUTINE, text: note, size_bytes: 2000, every_s: 21600, start_s: 3000, end_s: 252000}
+  - {from: clinic-4, to: hospital, priority: ROUTINE, text: note, size_bytes: 2000, every_s: 21600, start_s: 4200, end_s: 252000}
+  - {from: clinic-1, to: hospital, priority: ROUTINE, text: wound photo, size_bytes: 400000, every_s: 86400, start_s: 7200, end_s: 252000}
+  - {from: clinic-3, to: hospital, priority: ROUTINE, text: lab photo, size_bytes: 400000, every_s: 86400, start_s: 9000, end_s: 252000}
+  - {from: clinic-2, to: hospital, priority: ROUTINE, text: ultrasound clip, size_bytes: 5000000, every_s: 86400, start_s: 14400, end_s: 252000}
+  - {from: clinic-1, to: hospital, priority: CRITICAL, text: referral, every_s: 43200, start_s: 5400, end_s: 252000}
+  - {from: clinic-4, to: hospital, priority: CRITICAL, text: referral, every_s: 43200, start_s: 27000, end_s: 252000}
+  # replies from the hospital
+  - {from: hospital, to: clinic-1, priority: URGENT, text: advice, every_s: 28800, start_s: 7000, end_s: 252000}
+  - {from: hospital, to: clinic-2, priority: URGENT, text: lab result, every_s: 28800, start_s: 8000, end_s: 252000}
+  - {from: hospital, to: clinic-3, priority: URGENT, text: advice, every_s: 28800, start_s: 9000, end_s: 252000}
+  - {from: hospital, to: clinic-4, priority: URGENT, text: lab result, every_s: 28800, start_s: 10000, end_s: 252000}

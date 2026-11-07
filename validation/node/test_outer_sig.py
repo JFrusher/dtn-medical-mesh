@@ -65,7 +65,9 @@ def test_site_signs_on_inject_and_sends_certs_before_shards() -> None:
     assert held.injector == site.identity.cert.cert_id and held.sig != shards[0].header.sig
     connect(site, "M")
     kinds = [f["t"] for f in frames(frame(site, "M", summary_from("M", "C2")))]
-    assert kinds[:2] == ["cert", "cert"] and set(kinds[2:]) == {"shard"}
+    first_shard = kinds.index("shard")
+    assert first_shard > 0 and set(kinds[:first_shard]) == {"cert"}  # certs first
+    assert set(kinds[first_shard:]) == {"shard"}
 
 
 def test_injecting_for_another_source_sa_fails_loudly() -> None:

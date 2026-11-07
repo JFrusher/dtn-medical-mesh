@@ -5,7 +5,18 @@ from node.core import LORA_MAX_FRAME
 from node.events import EndpointAck, FrameReceived, SendFrame
 from node.hw.radio import RadioKind
 from node.pki import Role
-from validation.node.helpers import ack_msg, make_node, make_shards, records, shard_msg, signed_ack
+from validation.node.helpers import (
+    ack_msg,
+    frame,
+    frames,
+    identity,
+    make_node,
+    make_shards,
+    records,
+    shard_msg,
+    signed_ack,
+    summary_from,
+)
 
 L = RadioKind.LORA
 
@@ -37,3 +48,25 @@ def test_shards_summaries_and_oversized_frames_are_rejected_on_lora() -> None:
     big = {**ack_msg(signed_ack(b"\x00" * 32)), "pad": b"x" * LORA_MAX_FRAME}
     assert lora(mule, big) == []
     assert mule.dropped["lora_rejected"] == 3 and mule.shards == {}
+
+
+@pytest.mark.req("REQ-PROTO-09")
+def test_contacts_share_all_certs_so_lora_acks_from_strangers_verify() -> None:
+    """Evidence from rural-clinics: an east-side van rejected LoRa ACKs signed by west-side
+    clinics it had never met. Contacts now hand over every cert the peer lacks."""
+    hub = make_node("H", Role.HUB, "SA_H")
+    west = identity("WEST", Role.SITE, "SA_W")
+    hub.certs[west.cert.cert_id] = west.cert
+    van = make_node("V", Role.MULE)
+    sent = frames(frame(hub, "V", summary_from("V", "H")))
+    for f in sent:
+        if f["t"] == "cert":
+            frame(van, "H", f)
+    assert west.cert.cert_id in van.certs
+
+
+def test_unknown_signer_is_counted_apart_from_forgery() -> None:
+    van = make_node("V", Role.MULE)
+    stranger = identity("S", Role.SITE, "SA_H")
+    lora(van, ack_msg(signed_ack(b"\x01" * 32, signer=stranger)))
+    assert van.dropped == {"ack_signer_unknown": 1}
