@@ -30,7 +30,7 @@ def test_mule_makes_and_breaks_contacts(tmp_path: Path) -> None:
     provision(list(w.nodes.values()), seed=1)
     w.start()
     s.run_until(105)
-    assert log == ["0 CONTACT CLINIC <-> MULE", "90 CONTACT HOSP <-> MULE"]
+    assert log == ["2 CONTACT CLINIC <-> MULE", "92 CONTACT HOSP <-> MULE"]  # 2 s link setup
     assert w.contacts == {frozenset(("HOSP", "MULE"))}
 
 

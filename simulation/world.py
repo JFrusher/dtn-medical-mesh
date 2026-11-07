@@ -29,7 +29,7 @@ from node.hw.rtc import RtcError
 from node.pki import Identity
 from node.storage import STORAGE_KEY_SLOT, Storage
 from simulation.mobility import Mobility
-from simulation.radio_model import RadioParams
+from simulation.radio_model import Link, RadioParams, transfer_s
 from simulation.scheduler import Scheduler
 from simulation.virtual_hw import SeededEntropy, SoftwareSecureElement, VirtualRtc
 
@@ -77,7 +77,10 @@ class World:
         self.radio = radio or RadioParams()
         self.tick_s = tick_s
         self.nodes: dict[str, SimNode] = {}
-        self.contacts: set[frozenset[str]] = set()
+        self.contacts: set[frozenset[str]] = set()  # links that are up
+        self.links: dict[frozenset[str], Link] = {}
+        self._connecting: set[frozenset[str]] = set()
+        self.lost_frames = 0
         self.log: LogFn = log or (lambda t, msg: None)
 
     def add_node(self, config: NodeConfig, mobility: Mobility) -> SimNode:
@@ -137,17 +140,25 @@ class World:
         if action.radio is RadioKind.LORA:
             self._broadcast_lora(src, action)
             return
-        pair = frozenset((src, action.peer_id))
+        link = self.links.get(frozenset((src, action.peer_id)))
+        if link is None or not link.up:
+            self.lost_frames += 1
+            return
+        start = max(self.scheduler.now, link.busy_until.get(src, 0.0))
+        done = start + transfer_s(len(action.frame), self.radio)
+        link.busy_until[src] = done
+        generation = link.generation
 
         def arrive() -> None:
-            if pair not in self.contacts:
-                return  # link went down while the frame was in flight
+            if not link.up or link.generation != generation:
+                self.lost_frames += 1  # the contact ended before this frame got through
+                return
             self.dispatch(
                 self.nodes[action.peer_id],
                 partial(FrameReceived, peer_id=src, radio=action.radio, frame=action.frame),
             )
 
-        self.scheduler.after(0, arrive)
+        self.scheduler.schedule(done, arrive)
 
     def _broadcast_lora(self, src: str, action: SendFrame) -> None:
         """v0: every node within LoRa range hears it. Airtime and duty cycle come in P5.S03."""
@@ -169,18 +180,34 @@ class World:
                     ),
                 )
 
+    def _in_range(self, a: str, b: str) -> bool:
+        return math.dist(self.position(a), self.position(b)) <= self.radio.wifi_range_m
+
     def _tick(self) -> None:
         for a, b in combinations(sorted(self.nodes), 2):
             pair = frozenset((a, b))
-            in_range = math.dist(self.position(a), self.position(b)) <= self.radio.wifi_range_m
-            if in_range and pair not in self.contacts:
-                self.contacts.add(pair)
-                self.log(self.scheduler.now, f"CONTACT {a} <-> {b}")
-                self._notify_contact(ContactUp, a, b)
-            elif not in_range and pair in self.contacts:
+            link = self.links.setdefault(pair, Link())
+            if self._in_range(a, b):
+                if not link.up and pair not in self._connecting:
+                    self._connecting.add(pair)
+                    self.scheduler.after(self.radio.wifi_setup_s, partial(self._link_up, a, b))
+            elif link.up:
+                link.up = False
+                link.generation += 1
+                link.busy_until.clear()
                 self.contacts.discard(pair)
                 self._notify_contact(ContactDown, a, b)
         self.scheduler.after(self.tick_s, self._tick)
+
+    def _link_up(self, a: str, b: str) -> None:
+        pair = frozenset((a, b))
+        self._connecting.discard(pair)
+        if not self._in_range(a, b):
+            return  # drove out of range before the link came up
+        self.links[pair].up = True
+        self.contacts.add(pair)
+        self.log(self.scheduler.now, f"CONTACT {a} <-> {b}")
+        self._notify_contact(ContactUp, a, b)
 
     def _notify_contact(self, kind: type[ContactUp | ContactDown], a: str, b: str) -> None:
         for x, y in ((a, b), (b, a)):
