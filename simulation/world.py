@@ -1,6 +1,7 @@
 """The simulated world: nodes, mobility, radio contacts, and the action driver."""
 
 import math
+from collections import defaultdict
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from functools import partial
@@ -29,7 +30,14 @@ from node.hw.rtc import RtcError
 from node.pki import Identity
 from node.storage import STORAGE_KEY_SLOT, Storage
 from simulation.mobility import Mobility
-from simulation.radio_model import Link, RadioParams, channel, transfer_s
+from simulation.radio_model import (
+    DutyCycle,
+    Link,
+    RadioParams,
+    channel,
+    lora_airtime_s,
+    transfer_s,
+)
 from simulation.scheduler import Scheduler
 from simulation.virtual_hw import SeededEntropy, SoftwareSecureElement, VirtualRtc
 
@@ -81,6 +89,8 @@ class World:
         self.links: dict[frozenset[str], Link] = {}
         self._connecting: set[frozenset[str]] = set()
         self.lost_frames = 0
+        self.lora_over_budget = 0
+        self._duty: dict[str, DutyCycle] = defaultdict(DutyCycle)
         self.log: LogFn = log or (lambda t, msg: None)
 
     def add_node(self, config: NodeConfig, mobility: Mobility) -> SimNode:
@@ -165,24 +175,17 @@ class World:
         self.scheduler.schedule(done, arrive)
 
     def _broadcast_lora(self, src: str, action: SendFrame) -> None:
-        """v0: every node within LoRa range hears it. Airtime and duty cycle come in P5.S03."""
+        """Everyone in LoRa range hears it after its airtime, if the sender has duty budget."""
+        r = self.radio
+        airtime = lora_airtime_s(len(action.frame), r.lora_sf, r.lora_bw_hz, r.lora_cr)
+        if not self._duty[src].admit(self.scheduler.now, airtime, r.lora_duty_cycle):
+            self.lora_over_budget += 1
+            return
         here = self.position(src)
+        heard = partial(FrameReceived, peer_id=src, radio=RadioKind.LORA, frame=action.frame)
         for node_id in sorted(self.nodes):
-            if (
-                node_id != src
-                and math.dist(here, self.position(node_id)) <= self.radio.lora_range_m
-            ):
-                node = self.nodes[node_id]
-                self.scheduler.after(
-                    0,
-                    partial(
-                        self.dispatch,
-                        node,
-                        partial(
-                            FrameReceived, peer_id=src, radio=RadioKind.LORA, frame=action.frame
-                        ),
-                    ),
-                )
+            if node_id != src and math.dist(here, self.position(node_id)) <= r.lora_range_m:
+                self.scheduler.after(airtime, partial(self.dispatch, self.nodes[node_id], heard))
 
     def _in_range(self, a: str, b: str) -> bool:
         return math.dist(self.position(a), self.position(b)) <= self.radio.wifi_range_m

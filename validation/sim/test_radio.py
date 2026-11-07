@@ -1,3 +1,4 @@
+import random
 from pathlib import Path
 
 import pytest
@@ -8,7 +9,7 @@ from node.hw.radio import RadioKind
 from node.pki import Role
 from simulation.mobility import Route, Static
 from simulation.provision import provision
-from simulation.radio_model import RadioParams
+from simulation.radio_model import DutyCycle, Link, RadioParams, channel, lora_airtime_s
 from simulation.scheduler import Scheduler
 from simulation.world import World
 
@@ -58,10 +59,6 @@ def test_frame_lost_when_contact_drops_does_not_leak_into_next_contact(tmp_path:
 
 @pytest.mark.req("REQ-SIM-03")
 def test_gilbert_elliott_losses_come_in_bursts_and_bits_flip() -> None:
-    import random
-
-    from simulation.radio_model import Link, channel
-
     params = RadioParams(
         p_good_to_bad=0.05, p_bad_to_good=0.2, loss_in_bad=0.9, bit_flip_per_frame=0.1
     )
@@ -73,3 +70,13 @@ def test_gilbert_elliott_losses_come_in_bursts_and_bits_flip() -> None:
     assert runs > sum(lost) * 0.5  # losses cluster: most lost frames follow another loss
     flipped = [o for o in out if o is not None and o != b"frame"]
     assert flipped and all(len(o) == 5 for o in flipped)
+
+
+@pytest.mark.req("REQ-SIM-03", "REQ-PROTO-09")
+def test_lora_airtime_and_duty_cycle() -> None:
+    assert lora_airtime_s(20, sf=7, bw_hz=125_000, cr=1) == pytest.approx(0.0566, abs=0.001)
+    assert lora_airtime_s(200, 12, 125_000, 1) > 5 * lora_airtime_s(200, 9, 125_000, 1)
+    budget = DutyCycle()
+    sent = sum(budget.admit(t, 1.0, duty=0.01) for t in range(60))
+    assert sent == 36  # 1% of an hour is 36 s of airtime
+    assert budget.admit(3600 + 1, 1.0, duty=0.01)  # the oldest airtime has rolled out
