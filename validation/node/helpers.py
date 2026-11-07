@@ -10,7 +10,7 @@ import cbor2
 from node import erasure, merkle
 from node.bundle import Header, Priority, Shard, encode_shard, make_bundle_id
 from node.config import PRIORITY_CLASSES
-from node.core import T_CERTS, NodeConfig, NodeCore
+from node.core import T_CERTS, NodeConfig, NodeCore, _summary_signing_bytes
 from node.events import Action, ContactUp, FrameReceived, Inject, SendFrame
 from node.hw.radio import RadioKind
 from node.pki import ROOT, Identity, Role, encode_cert, issue
@@ -66,7 +66,26 @@ def connect(
     node: NodeCore, peer: str, ids: Sequence[bytes] = (), acks: Sequence[bytes] = ()
 ) -> None:
     node.handle(ContactUp(mono=0, wall=None, peer_id=peer, radio=W))
-    frame(node, peer, {"t": "summary", "ids": list(ids), "acks": list(acks), "certs": []})
+    frame(node, peer, summary_from(peer, node.config.node_id, ids, acks))
+
+
+def summary_from(
+    peer: str, to: str, ids: Sequence[bytes] = (), acks: Sequence[bytes] = ()
+) -> dict[str, object]:
+    """A correctly signed opening summary from test node `peer` (a mule, or the hub 'H')."""
+    me = identity(peer, Role.HUB, "SA_H") if peer == "H" else identity(peer, Role.MULE, None)
+    msg: dict[str, object] = {
+        "t": "summary",
+        "ids": sorted(ids),
+        "acks": sorted(acks),
+        "certs": [],
+        "from": encode_cert(me.cert),
+        "issuer": encode_cert(me.issuer) if me.issuer else None,
+        "to": to,
+        "time": NOW + 60,
+    }
+    msg["sig"] = me.sign(_summary_signing_bytes(msg))
+    return msg
 
 
 def shard_msg(s: Shard) -> dict[str, object]:

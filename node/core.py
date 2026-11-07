@@ -43,6 +43,8 @@ T_ACKS = "acks"
 T_ORIGIN = "origin"  # bundles injected here, awaiting a delivery ACK
 T_DELIVERED = "delivered"  # bundles handed to the attached endpoint
 T_CERTS = "certs"
+SUMMARY_MAX_SKEW_S = 3600
+_SUMMARY_CONTEXT = b"dtn-medical-mesh/v1/summary"
 
 
 class StorageFull(Exception):
@@ -96,13 +98,7 @@ class NodeCore:
             self.clock_s = max(self.clock_s, event.wall)
         match event:
             case ContactUp(radio=RadioKind.WIFI):
-                summary = {
-                    "t": "summary",
-                    "ids": sorted(self.shards),
-                    "acks": sorted(self.acks),
-                    "certs": sorted(self.certs),
-                }
-                return [self._send(event.peer_id, summary)]
+                return [self._send(event.peer_id, self._summary(event.peer_id))]
             case ContactDown(radio=RadioKind.WIFI):
                 for table in (self.peer_has, self.peer_acks, self.peer_certs):
                     table.pop(event.peer_id, None)
@@ -123,6 +119,9 @@ class NodeCore:
             msg = cbor2.loads(frame)
             kind = msg["t"]
             if kind == "summary":
+                if not self._summary_authentic(peer_id, msg):
+                    self.dropped["unauthenticated_peer"] += 1
+                    return []
                 self.peer_has[peer_id] = {_bytes(i) for i in msg["ids"]}
                 self.peer_acks[peer_id] = {_bytes(i) for i in msg["acks"]}
                 self.peer_certs[peer_id] = {str(i) for i in msg["certs"]}
@@ -137,6 +136,41 @@ class NodeCore:
         except (FormatError, KeyError, TypeError, cbor2.CBORDecodeError):
             self.dropped["malformed"] += 1
             return []
+
+    def _summary(self, peer_id: str) -> dict[str, object]:
+        """Opening message: what we hold, plus proof we hold our certificate's key (§8.2)."""
+        body = {"ids": sorted(self.shards), "acks": sorted(self.acks), "certs": sorted(self.certs)}
+        issuer = self.identity.issuer
+        msg: dict[str, object] = {
+            "t": "summary",
+            **body,
+            "from": encode_cert(self.identity.cert),
+            "issuer": encode_cert(issuer) if issuer else None,
+            "to": peer_id,
+            "time": int(self.clock_s),
+        }
+        msg["sig"] = self.identity.sign(_summary_signing_bytes(msg))
+        return msg
+
+    def _summary_authentic(self, peer_id: str, msg: dict[str, object]) -> bool:
+        """Peer's cert chain is valid, names this peer, and signed a summary meant for us now."""
+        cert = decode_cert(_bytes(msg["from"]))
+        if msg["issuer"] is not None:
+            self._on_cert(decode_cert(_bytes(msg["issuer"])))
+        sent_at = msg["time"]
+        if not isinstance(sent_at, int):
+            raise FormatError("summary time must be an integer")
+        fresh = abs(sent_at - self.clock_s) <= SUMMARY_MAX_SKEW_S
+        ok = (
+            cert.subject == peer_id
+            and msg["to"] == self.config.node_id
+            and fresh
+            and self._valid(cert)
+            and verify_p256(cert.pubkey, _summary_signing_bytes(msg), _bytes(msg["sig"]))
+        )
+        if ok:
+            self._on_cert(cert)
+        return ok
 
     def _offer(self, peer_id: str) -> list[Action]:
         """Send a connected peer every ACK and shard it lacks, most important first."""
@@ -315,6 +349,11 @@ class NodeCore:
 
     def _send(self, peer_id: str, msg: Mapping[str, object]) -> SendFrame:
         return SendFrame(peer_id=peer_id, radio=RadioKind.WIFI, frame=cbor2.dumps(msg))
+
+
+def _summary_signing_bytes(msg: Mapping[str, object]) -> bytes:
+    body = cbor2.dumps([msg["ids"], msg["acks"], msg["certs"]])
+    return _SUMMARY_CONTEXT + cbor2.dumps([msg["from"], msg["to"], msg["time"], body])
 
 
 def _intact(shard: Shard) -> bool:

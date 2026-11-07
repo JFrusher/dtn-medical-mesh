@@ -13,6 +13,7 @@ from validation.node.helpers import (
     make_shards,
     records,
     shard_msg,
+    summary_from,
 )
 
 
@@ -32,7 +33,7 @@ def test_offers_only_missing_shards_most_urgent_first() -> None:
     routine, critical = make_shards(b"a"), make_shards(b"b", priority=Priority.CRITICAL)
     node = make_node("M", Role.MULE, None, records(routine, critical))
     have = [s.shard_id for s in routine[:3]]
-    sent = frames(frame(node, "P", {"t": "summary", "ids": have, "acks": [], "certs": []}))
+    sent = frames(frame(node, "P", summary_from("P", "M", ids=have)))
     expected = critical + routine[3:]
     assert [f["s"] for f in sent if f["t"] == "shard"] == [encode_shard(s) for s in expected]
 

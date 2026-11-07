@@ -14,6 +14,7 @@ from validation.node.helpers import (
     make_node,
     make_shards,
     shard_msg,
+    summary_from,
 )
 
 
@@ -63,10 +64,7 @@ def test_site_signs_on_inject_and_sends_certs_before_shards() -> None:
     [held] = {s.header for s in site.shards.values()}
     assert held.injector == site.identity.cert.cert_id and held.sig != shards[0].header.sig
     connect(site, "M")
-    kinds = [
-        f["t"]
-        for f in frames(frame(site, "M", {"t": "summary", "ids": [], "acks": [], "certs": []}))
-    ]
+    kinds = [f["t"] for f in frames(frame(site, "M", summary_from("M", "C2")))]
     assert kinds[:2] == ["cert", "cert"] and set(kinds[2:]) == {"shard"}
 
 
