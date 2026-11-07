@@ -60,7 +60,7 @@ def decode_bundle(data: bytes) -> Bundle:
         if obj["v"] != FORMAT_VERSION:
             raise FormatError(f"unsupported format version {obj['v']}")
         return Bundle(decode_header(obj["h"]), _typed(obj["p"], bytes))
-    except (KeyError, TypeError, cbor2.CBORDecodeError) as e:
+    except (KeyError, TypeError, ValueError, cbor2.CBORDecodeError) as e:
         raise FormatError(str(e)) from e
 
 

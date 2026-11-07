@@ -53,6 +53,13 @@ def test_rejects_forged_bundle_id() -> None:
         decode_bundle(cbor2.dumps(obj))
 
 
+def test_rejects_unknown_priority() -> None:
+    obj = cbor2.loads(encode_bundle(sample()))
+    obj["h"]["priority"] = 9
+    with pytest.raises(FormatError):
+        decode_bundle(cbor2.dumps(obj))
+
+
 def test_rejects_wrong_field_type() -> None:
     obj = cbor2.loads(encode_bundle(sample()))
     obj["h"]["src_sa"] = 5
