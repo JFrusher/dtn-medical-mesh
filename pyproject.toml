@@ -4,10 +4,25 @@ version = "0.1.0"
 description = "Delay-tolerant mesh network for offline clinical data transport"
 license = "Apache-2.0"
 requires-python = ">=3.11"
-dependencies = []
+dependencies = [
+    "cbor2>=6.2.1",
+    "cryptography>=50.0.2",
+    "fastapi>=0.162.2",
+    "pynacl>=1.6.2",
+    "pyyaml>=6.0.3",
+    "sqlcipher3>=0.6.5",
+    "uvicorn>=0.54.0",
+    "zfec>=1.6.0.0",
+]
 
 [dependency-groups]
-dev = ["pytest>=8", "ruff>=0.6", "mypy>=1.11"]
+dev = [
+    "pytest>=8",
+    "ruff>=0.6",
+    "mypy>=1.11",
+    "hypothesis>=6.170.15",
+    "types-pyyaml>=6.0.12.20261103",
+]
 
 [build-system]
 requires = ["hatchling"]
@@ -29,3 +44,8 @@ select = ["E", "F", "I", "B", "UP", "SIM"]
 [tool.mypy]
 strict = true
 python_version = "3.11"
+
+[[tool.mypy.overrides]]
+# shortcut: these ship no type stubs; wrap them in typed modules (node/erasure.py, node/storage.py).
+module = ["zfec", "sqlcipher3", "sqlcipher3.*"]
+ignore_missing_imports = true
