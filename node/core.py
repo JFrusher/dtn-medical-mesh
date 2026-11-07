@@ -66,6 +66,7 @@ from node.pki import (
     sign_doc,
     valid,
 )
+from node.routing import Router, peer_table
 from node.summary import Bloom
 
 T_SHARDS = "shards"
@@ -117,7 +118,9 @@ class NodeCore:
             if cert.pubkey == identity.cert.pubkey and cert.not_after > identity.cert.not_after:
                 identity = replace(identity, cert=cert, issuer=issuer)
         self.identity = identity
-        stored_hlc = records.get(T_META, {}).get(b"hlc")
+        meta = records.get(T_META, {})
+        self.router = Router.decode(meta[b"router"]) if b"router" in meta else Router()
+        stored_hlc = meta.get(b"hlc")
         self.hlc = Hlc(int.from_bytes(stored_hlc) if stored_hlc else 0)
         self._rtc_ok = False  # whether the event being handled carried an RTC reading
         self.certs: dict[str, Cert] = {
@@ -164,6 +167,7 @@ class NodeCore:
         self.peer_acks: dict[str, set[bytes]] = {}
         self.peer_certs: dict[str, set[str]] = {}
         self.peer_sa: dict[str, str | None] = {}
+        self.peer_table: dict[str, dict[str, float]] = {}  # peers' PRoPHET predictabilities
         self.peer_docs: dict[str, dict[str, int]] = {}
 
     def handle(self, event: Event) -> list[Action]:
@@ -201,6 +205,7 @@ class NodeCore:
                     self.peer_certs,
                     self.peer_docs,
                     self.peer_sa,
+                    self.peer_table,
                 ):
                     table.pop(event.peer_id, None)
                 return self._issue_receipt(event.peer_id)  # anything owed goes to the outbox
@@ -238,6 +243,10 @@ class NodeCore:
                     return []
                 self.peer_bloom[peer_id] = Bloom.decode(_bytes(msg["bloom"]))
                 self.peer_sa[peer_id] = peer_cert.sa
+                table = peer_table(msg["prophet"])
+                self.peer_table[peer_id] = table
+                self.router.encounter(peer_cert.sa, table, self.clock_s)
+                remember = Store(table=T_META, key=b"router", value=self.router.encode())
                 self.peer_has[peer_id] = set()
                 self.peer_acks[peer_id] = set()
                 self.peer_certs[peer_id] = {str(i) for i in msg["certs"]}
@@ -248,6 +257,7 @@ class NodeCore:
                 follow_up = SetTimer(name=f"exact:{peer_id}", at_mono=self._mono + EXACT_AFTER_S)
                 return [
                     follow_up,
+                    remember,
                     *self._pay_receipts_owed(peer_id),
                     *self._renew(peer_id, peer_cert),
                     *self._offer(peer_id),
@@ -286,6 +296,7 @@ class NodeCore:
             "bloom": Bloom.of(held).encode(),
             "certs": sorted(self.certs),
             "docs": {k: d.seq for k, d in sorted(self.docs.items())},
+            "prophet": {sa: round(p, 4) for sa, p in sorted(self.router.p.items())},
         }
         issuer = self.identity.issuer
         msg: dict[str, object] = {
@@ -378,12 +389,16 @@ class NodeCore:
         actions += self._certs_for(peer_id, {a.signer for a in new_acks})
         actions += [self._send(peer_id, {"t": "ack", "a": encode_ack(a)}) for a in new_acks]
         has = self.peer_has[peer_id]
+        peer_sa = self.peer_sa.get(peer_id)
+        table = self.peer_table.get(peer_id, {})
         missing = [
             s
             for i, s in self.shards.items()
-            if i not in has and b"s" + i not in bloom and not self._expired(s)
+            if i not in has
+            and b"s" + i not in bloom
+            and not self._expired(s)
+            and self.router.forward(s.header.dst_sa, peer_sa, table)
         ]
-        peer_sa = self.peer_sa.get(peer_id)
 
         def still_needed_by_peer(h: Header) -> int:
             if h.dst_sa != peer_sa:
@@ -607,7 +622,8 @@ class NodeCore:
         h = shard.header
         if h.bundle_id in self.origin or self.config.sa == h.dst_sa:
             return False
-        return custodian.sa == h.dst_sa
+        table = self.peer_table.get(custodian.subject, {})
+        return self.router.better(h.dst_sa, custodian.sa, table)
 
     def _make_room(self, incoming: Shard, size: int) -> list[Action] | None:
         """Evict less important shards to fit `size` bytes, or return None and evict nothing.
@@ -754,7 +770,7 @@ def _held(sid: bytes, has: set[bytes], bloom: Bloom) -> bool:
 
 
 def _summary_signing_bytes(msg: Mapping[str, object]) -> bytes:
-    body = cbor2.dumps([msg["bloom"], msg["certs"], msg["docs"]])
+    body = cbor2.dumps([msg["bloom"], msg["certs"], msg["docs"], msg["prophet"]])
     return _SUMMARY_CONTEXT + cbor2.dumps([msg["from"], msg["to"], msg["hlc"], body])
 
 
