@@ -1,82 +1,75 @@
-import hashlib
-
 import cbor2
 
-from node.bundle import Bundle, Header, Priority, encode_bundle, make_bundle_id
+from node.bundle import Priority, decode_bundle, encode_shard
 from node.core import NodeConfig, NodeCore, Role
-from node.events import Action, ContactUp, Deliver, FrameReceived, Inject, SendFrame, Store
-from node.hw.radio import RadioKind
-
-W = RadioKind.WIFI
-
-
-def bundle(payload: bytes, dst: str = "SA_H", prio: Priority = Priority.ROUTINE) -> Bundle:
-    root = hashlib.sha256(payload).digest()
-    h = Header(
-        make_bundle_id(root, 1), "SA_C", dst, prio, 1, 3600, len(payload), 1, 0, root, "C", b""
-    )
-    return Bundle(h, payload)
-
-
-def frames(actions: list[Action]) -> list[dict[str, object]]:
-    return [cbor2.loads(a.frame) for a in actions if isinstance(a, SendFrame)]
+from node.erasure import encode
+from node.events import ContactUp, Deliver, FrameReceived, Store
+from validation.node.helpers import (
+    W,
+    connect,
+    frame,
+    frames,
+    inject,
+    make_shards,
+    records,
+    shard_msg,
+)
 
 
-def test_inject_stores_and_contact_sends_summary() -> None:
+def test_inject_stores_every_shard_and_contact_sends_summary() -> None:
     clinic = NodeCore(NodeConfig("C", Role.SITE, "SA_C"), {})
-    b = bundle(b"x")
-    actions = clinic.handle(Inject(mono=0, wall=None, bundle=encode_bundle(b)))
-    assert actions == [
-        Store(table="origin", key=b.header.bundle_id, value=b""),
-        Store(table="bundles", key=b.header.bundle_id, value=encode_bundle(b)),
-    ]
+    shards = make_shards(b"x")
+    actions = inject(clinic, shards)
+    bid = shards[0].header.bundle_id
+    assert actions[0] == Store(table="origin", key=bid, value=b"")
+    assert [a.key for a in actions[1:] if isinstance(a, Store)] == [s.shard_id for s in shards]
     up = clinic.handle(ContactUp(mono=1, wall=None, peer_id="M", radio=W))
-    assert frames(up) == [{"t": "summary", "ids": [b.header.bundle_id], "acks": []}]
+    assert frames(up) == [{"t": "summary", "ids": sorted(s.shard_id for s in shards), "acks": []}]
 
 
-def test_offers_only_missing_bundles_most_urgent_first() -> None:
-    a, b, c = bundle(b"a"), bundle(b"b", prio=Priority.CRITICAL), bundle(b"c")
-    records = {"bundles": {x.header.bundle_id: encode_bundle(x) for x in (a, b, c)}}
-    node = NodeCore(NodeConfig("M", Role.MULE, None), records)
-    summary = cbor2.dumps({"t": "summary", "ids": [c.header.bundle_id], "acks": []})
-    sent = frames(
-        node.handle(FrameReceived(mono=0, wall=None, peer_id="P", radio=W, frame=summary))
-    )
-    assert [f["b"] for f in sent] == [encode_bundle(b), encode_bundle(a)]
+def test_offers_only_missing_shards_most_urgent_first() -> None:
+    routine, critical = make_shards(b"a"), make_shards(b"b", priority=Priority.CRITICAL)
+    node = NodeCore(NodeConfig("M", Role.MULE, None), records(routine, critical))
+    have = [s.shard_id for s in routine[:3]]
+    sent = frames(frame(node, "P", {"t": "summary", "ids": have, "acks": []}))
+    expected = critical + routine[3:]
+    assert [f["s"] for f in sent] == [encode_shard(s) for s in expected]
 
 
-def test_destination_delivers_once() -> None:
+def test_destination_rebuilds_from_any_k_and_delivers_once() -> None:
+    shards = make_shards(b"x")  # k=4, m=2
     hosp = NodeCore(NodeConfig("H", Role.HUB, "SA_H"), {})
-    frame = cbor2.dumps({"t": "bundle", "b": encode_bundle(bundle(b"x"))})
-    ev = FrameReceived(mono=0, wall=None, peer_id="M", radio=W, frame=frame)
-    first = hosp.handle(ev)
-    assert any(isinstance(a, Deliver) for a in first)
-    assert hosp.handle(ev) == []
+    delivered = []
+    for s in [shards[5], shards[1], shards[4], shards[2], shards[0]]:
+        delivered += [a for a in frame(hosp, "M", shard_msg(s)) if isinstance(a, Deliver)]
+    [d] = delivered
+    assert decode_bundle(d.bundle).payload == b"x" * 4096
+    assert encode(b"x" * 4096, 4, 2) == [s.data for s in shards]
+
+
+def test_relay_never_delivers() -> None:
+    mule = NodeCore(NodeConfig("M", Role.MULE, None), {})
+    for s in make_shards(b"x"):
+        assert not [a for a in frame(mule, "C", shard_msg(s)) if isinstance(a, Deliver)]
 
 
 def test_malformed_frames_are_dropped_and_counted() -> None:
     node = NodeCore(NodeConfig("M", Role.MULE, None), {})
-    for junk in (b"\xff", cbor2.dumps({"t": "nope"}), cbor2.dumps({"t": "bundle", "b": b"x"})):
-        assert node.handle(FrameReceived(mono=0, wall=None, peer_id="P", radio=W, frame=junk)) == []
+    junk = [b"\xff", cbor2.dumps({"t": "nope"}), cbor2.dumps({"t": "shard", "s": b"x"})]
+    for j in junk:
+        assert node.handle(FrameReceived(mono=0, wall=None, peer_id="P", radio=W, frame=j)) == []
     assert node.dropped["malformed"] == 3
 
 
-def test_new_bundle_goes_to_already_connected_peer() -> None:
+def test_new_shards_go_to_already_connected_peer() -> None:
     clinic = NodeCore(NodeConfig("C", Role.SITE, "SA_C"), {})
-    clinic.handle(ContactUp(mono=0, wall=None, peer_id="M", radio=W))
-    empty = cbor2.dumps({"t": "summary", "ids": [], "acks": []})
-    clinic.handle(FrameReceived(mono=0, wall=None, peer_id="M", radio=W, frame=empty))
-    b = bundle(b"late")
-    sent = frames(clinic.handle(Inject(mono=5, wall=None, bundle=encode_bundle(b))))
-    assert sent == [{"t": "bundle", "b": encode_bundle(b)}]
-    assert clinic.handle(Inject(mono=6, wall=None, bundle=encode_bundle(b))) == []
+    connect(clinic, "M")
+    shards = make_shards(b"late")
+    assert len(frames(inject(clinic, shards))) == len(shards)
+    assert inject(clinic, shards) == []
 
 
-def test_bundle_is_not_echoed_back_to_its_sender() -> None:
+def test_shard_is_not_echoed_back_to_its_sender() -> None:
     mule = NodeCore(NodeConfig("M", Role.MULE, None), {})
-    mule.handle(ContactUp(mono=0, wall=None, peer_id="C", radio=W))
-    empty = cbor2.dumps({"t": "summary", "ids": [], "acks": []})
-    mule.handle(FrameReceived(mono=0, wall=None, peer_id="C", radio=W, frame=empty))
-    frame = cbor2.dumps({"t": "bundle", "b": encode_bundle(bundle(b"x"))})
-    out = mule.handle(FrameReceived(mono=1, wall=None, peer_id="C", radio=W, frame=frame))
-    assert frames(out) == []
+    connect(mule, "C")
+    assert frames(frame(mule, "C", shard_msg(make_shards(b"x")[0]))) == []

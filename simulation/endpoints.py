@@ -1,12 +1,12 @@
 """Virtual endpoints (clinic/hospital laptops) attached to site nodes in the simulation."""
 
-import hashlib
 from dataclasses import dataclass, field
 from enum import Enum
 from functools import partial
 
-from endpoint.crypto import CryptoError, EndpointKeys, Opened, open_sealed, seal
-from node.bundle import Bundle, Header, Priority, decode_bundle, encode_bundle, make_bundle_id
+from endpoint.crypto import CryptoError, EndpointKeys, Opened
+from endpoint.pipeline import build_shards, open_delivered
+from node.bundle import Priority, decode_bundle, encode_shard
 from node.events import EndpointAck, Inject
 from simulation.virtual_hw import SeededEntropy
 from simulation.world import SimNode, World
@@ -48,36 +48,31 @@ class VirtualEndpoint:
         self.site.on_deliver = self._on_deliver
         self.site.on_delivered = self._on_delivered
 
-    def send(self, to: str, content: bytes, priority: Priority, lifetime_s: int) -> bytes:
+    def send(self, to: str, content: bytes, priority: Priority) -> bytes:
         entry = self.directory[to]
-        payload = seal(content, entry.encryption_public, self.keys, self.entropy)
-        created = int(self.world.scheduler.now * 1000)
         site_sa = self.site.config.sa
-        assert site_sa is not None
-        root = hashlib.sha256(payload).digest()  # shortcut: whole payload until P2.S06 shards it
-        header = Header(
-            make_bundle_id(root, created),
-            site_sa,
-            entry.sa,
-            priority,
-            created,
-            lifetime_s,
-            len(payload),
-            1,
-            0,
-            root,
-            self.site.config.node_id,
-            b"",
+        assert site_sa is not None  # checked in __post_init__
+        shards = build_shards(
+            content,
+            entry.encryption_public,
+            self.keys,
+            self.entropy,
+            src_sa=site_sa,
+            dst_sa=entry.sa,
+            priority=priority,
+            created=int(self.world.scheduler.now * 1000),
+            injector=self.site.config.node_id,
         )
-        encoded = encode_bundle(Bundle(header, payload))
-        self.world.dispatch(self.site, partial(Inject, bundle=encoded))
-        self.sent[header.bundle_id] = SentMessage(to)
-        return header.bundle_id
+        encoded = tuple(encode_shard(s) for s in shards)
+        self.world.dispatch(self.site, partial(Inject, shards=encoded))
+        bid = shards[0].header.bundle_id
+        self.sent[bid] = SentMessage(to)
+        return bid
 
     def _on_deliver(self, encoded: bytes) -> None:
         bundle = decode_bundle(encoded)
         try:
-            self.inbox.append(open_sealed(bundle.payload, self.keys))
+            self.inbox.append(open_delivered(bundle, self.keys))
         except CryptoError:
             return  # addressed to another endpoint in this service area
         self.world.log(self.world.scheduler.now, f"OPENED by {self.name}")

@@ -29,5 +29,5 @@ def test_delivery_ack_returns_to_origin_and_purges_everywhere(tmp_path: Path) ->
     [sent] = result.endpoints["clinic"].sent.values()
     assert sent.status.value == "delivered"
     for node in result.world.nodes.values():
-        assert node.core.bundles == {}, node.id
+        assert node.core.shards == {}, node.id
         assert len(node.core.acks) == 1, node.id

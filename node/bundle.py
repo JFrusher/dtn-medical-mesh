@@ -97,3 +97,48 @@ def _typed(value: object, kind: type[T]) -> T:
     if not isinstance(value, kind):
         raise FormatError(f"expected {kind.__name__}, got {type(value).__name__}")
     return value
+
+
+@dataclass(frozen=True)
+class Shard:
+    """One erasure-coded piece of a bundle's ciphertext; the unit that crosses the radio (§6.2)."""
+
+    header: Header
+    index: int
+    data: bytes
+    proof: tuple[bytes, ...]
+
+    @property
+    def shard_id(self) -> bytes:
+        return shard_id(self.header.bundle_id, self.index)
+
+
+def shard_id(bundle_id: bytes, index: int) -> bytes:
+    return bundle_id + index.to_bytes(1)
+
+
+def encode_shard(shard: Shard) -> bytes:
+    return cbor2.dumps(
+        {
+            "v": FORMAT_VERSION,
+            "h": asdict(shard.header),
+            "i": shard.index,
+            "d": shard.data,
+            "p": list(shard.proof),
+        }
+    )
+
+
+def decode_shard(data: bytes) -> Shard:
+    try:
+        obj = cbor2.loads(data)
+        if obj["v"] != FORMAT_VERSION:
+            raise FormatError(f"unsupported format version {obj['v']}")
+        header = decode_header(obj["h"])
+        index = _typed(obj["i"], int)
+        if not 0 <= index < header.k + header.m:
+            raise FormatError("shard index out of range")
+        proof = tuple(_typed(p, bytes) for p in _typed(obj["p"], list))
+        return Shard(header, index, _typed(obj["d"], bytes), proof)
+    except (KeyError, TypeError, ValueError, cbor2.CBORDecodeError) as e:
+        raise FormatError(str(e)) from e

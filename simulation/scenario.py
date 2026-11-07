@@ -36,7 +36,6 @@ class MessageSpec:
     sender: str
     recipient: str
     priority: Priority
-    lifetime_s: int
     text: str
 
 
@@ -107,7 +106,7 @@ def _endpoint(raw: dict[str, Any], node_ids: set[str]) -> EndpointSpec:
 
 
 def _message(raw: dict[str, Any], names: set[str]) -> MessageSpec:
-    _keys(raw, "message", {"at_s", "from", "to", "priority", "lifetime_s", "text"})
+    _keys(raw, "message", {"at_s", "from", "to", "priority", "text"})
     for who in (raw["from"], raw["to"]):
         if who not in names:
             raise ValueError(f"message refers to unknown endpoint {who}")
@@ -116,7 +115,6 @@ def _message(raw: dict[str, Any], names: set[str]) -> MessageSpec:
         sender=raw["from"],
         recipient=raw["to"],
         priority=Priority[raw["priority"]],
-        lifetime_s=int(raw["lifetime_s"]),
         text=str(raw["text"]),
     )
 

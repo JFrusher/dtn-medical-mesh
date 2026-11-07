@@ -51,9 +51,9 @@ class PowerLow(EventBase):
 
 @dataclass(frozen=True, kw_only=True)
 class Inject(EventBase):
-    """A bundle handed over by the attached endpoint (site nodes only)."""
+    """All shards of one new bundle, handed over by the attached endpoint (site nodes only)."""
 
-    bundle: bytes
+    shards: tuple[bytes, ...]
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -98,7 +98,7 @@ class SetTimer:
 
 @dataclass(frozen=True, kw_only=True)
 class Deliver:
-    """Hand a bundle to the attached endpoint."""
+    """Hand a rebuilt bundle (header + padded ciphertext) to the attached endpoint."""
 
     bundle: bytes
 

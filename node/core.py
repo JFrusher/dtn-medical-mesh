@@ -11,7 +11,8 @@ from enum import Enum
 
 import cbor2
 
-from node.bundle import Bundle, FormatError, decode_bundle, encode_bundle
+from node import erasure
+from node.bundle import Bundle, FormatError, Shard, decode_shard, encode_bundle, encode_shard
 from node.events import (
     Action,
     ContactDown,
@@ -28,9 +29,10 @@ from node.events import (
 )
 from node.hw.radio import RadioKind
 
-T_BUNDLES = "bundles"
+T_SHARDS = "shards"
 T_ACKS = "acks"
 T_ORIGIN = "origin"  # bundles injected here, awaiting a delivery ACK
+T_DELIVERED = "delivered"  # bundles handed to the attached endpoint
 
 
 class Role(Enum):
@@ -54,19 +56,20 @@ class NodeConfig:
 class NodeCore:
     def __init__(self, config: NodeConfig, records: dict[str, dict[bytes, bytes]]) -> None:
         self.config = config
-        self.bundles: dict[bytes, Bundle] = {
-            k: decode_bundle(v) for k, v in records.get(T_BUNDLES, {}).items()
+        self.shards: dict[bytes, Shard] = {
+            k: decode_shard(v) for k, v in records.get(T_SHARDS, {}).items()
         }
         self.acks: set[bytes] = set(records.get(T_ACKS, {}))
         self.origin: set[bytes] = set(records.get(T_ORIGIN, {}))
+        self.delivered: set[bytes] = set(records.get(T_DELIVERED, {}))
         self.dropped = Counter[str]()
-        self.peer_has: dict[str, set[bytes]] = {}  # connected peers' bundles, from their summary
+        self.peer_has: dict[str, set[bytes]] = {}  # connected peers' shard IDs, from their summary
         self.peer_acks: dict[str, set[bytes]] = {}
 
     def handle(self, event: Event) -> list[Action]:
         match event:
             case ContactUp(radio=RadioKind.WIFI):
-                summary = {"t": "summary", "ids": sorted(self.bundles), "acks": sorted(self.acks)}
+                summary = {"t": "summary", "ids": sorted(self.shards), "acks": sorted(self.acks)}
                 return [self._send(event.peer_id, summary)]
             case ContactDown(radio=RadioKind.WIFI):
                 self.peer_has.pop(event.peer_id, None)
@@ -75,61 +78,94 @@ class NodeCore:
             case FrameReceived(radio=RadioKind.WIFI):
                 return self._on_frame(event.peer_id, event.frame)
             case Inject():
-                bundle = decode_bundle(event.bundle)
-                if bundle.header.bundle_id in self.bundles.keys() | self.acks:
-                    return []
-                self.origin.add(bundle.header.bundle_id)
-                stored = Store(table=T_ORIGIN, key=bundle.header.bundle_id, value=b"")
-                return [stored, *self._accept(bundle, source=None)]
+                return self._inject([decode_shard(s) for s in event.shards])
             case EndpointAck():
                 return self._on_ack(event.bundle_id, source=None)
             case _:
                 return []
+
+    # --- frames from peers (untrusted) -------------------------------------
 
     def _on_frame(self, peer_id: str, frame: bytes) -> list[Action]:
         try:
             msg = cbor2.loads(frame)
             kind = msg["t"]
             if kind == "summary":
-                self.peer_has[peer_id] = set(msg["ids"])
-                self.peer_acks[peer_id] = set(msg["acks"])
+                self.peer_has[peer_id] = {_bytes(i) for i in msg["ids"]}
+                self.peer_acks[peer_id] = {_bytes(i) for i in msg["acks"]}
                 return self._offer(peer_id)
+            if kind == "shard":
+                return self._accept(decode_shard(_bytes(msg["s"])), source=peer_id)
             if kind == "ack":
                 return self._on_ack(_bytes(msg["id"]), source=peer_id)
-            if kind == "bundle":
-                return self._accept(decode_bundle(msg["b"]), source=peer_id)
             raise FormatError(f"unknown frame type {kind!r}")
         except (FormatError, KeyError, TypeError, cbor2.CBORDecodeError):
             self.dropped["malformed"] += 1
             return []
 
     def _offer(self, peer_id: str) -> list[Action]:
+        """Send a connected peer every ACK and shard it lacks, most important first."""
         known_acks = self.peer_acks[peer_id]
         new_acks = sorted(self.acks - known_acks)
         known_acks.update(new_acks)
         actions: list[Action] = [self._send(peer_id, {"t": "ack", "id": a}) for a in new_acks]
         has = self.peer_has[peer_id]
-        missing = [b for i, b in self.bundles.items() if i not in has]
-        missing.sort(key=lambda b: (b.header.priority, b.header.created))
-        has.update(b.header.bundle_id for b in missing)
+        missing = [s for i, s in self.shards.items() if i not in has]
+        missing.sort(key=lambda s: (s.header.priority, s.header.created, s.shard_id))
+        has.update(s.shard_id for s in missing)
         return actions + [
-            self._send(peer_id, {"t": "bundle", "b": encode_bundle(b)}) for b in missing
+            self._send(peer_id, {"t": "shard", "s": encode_shard(s)}) for s in missing
         ]
 
-    def _accept(self, bundle: Bundle, source: str | None) -> list[Action]:
-        bid = bundle.header.bundle_id
-        if source in self.peer_has:
-            self.peer_has[source].add(bid)
-        if bid in self.bundles or bid in self.acks:
+    # --- shards -------------------------------------------------------------
+
+    def _inject(self, shards: list[Shard]) -> list[Action]:
+        bids = {s.header.bundle_id for s in shards}
+        if len(bids) != 1:
+            raise ValueError("an injection carries the shards of exactly one bundle")
+        bid = bids.pop()
+        if bid in self.acks or any(s.shard_id in self.shards for s in shards):
             return []
-        self.bundles[bid] = bundle
-        encoded = encode_bundle(bundle)
-        actions: list[Action] = [Store(table=T_BUNDLES, key=bid, value=encoded)]
-        if bundle.header.dst_sa == self.config.sa:
-            actions.append(Deliver(bundle=encoded))
-        for peer in sorted(self.peer_has):  # contacts already open get it straight away
+        self.origin.add(bid)
+        actions: list[Action] = [Store(table=T_ORIGIN, key=bid, value=b"")]
+        for s in shards:
+            actions += self._store_shard(s)
+        return actions + self._after_new_shards(bid)
+
+    def _accept(self, shard: Shard, source: str | None) -> list[Action]:
+        sid, bid = shard.shard_id, shard.header.bundle_id
+        if source in self.peer_has:
+            self.peer_has[source].add(sid)
+        if sid in self.shards or bid in self.acks:
+            return []
+        return self._store_shard(shard) + self._after_new_shards(bid)
+
+    def _store_shard(self, shard: Shard) -> list[Action]:
+        self.shards[shard.shard_id] = shard
+        return [Store(table=T_SHARDS, key=shard.shard_id, value=encode_shard(shard))]
+
+    def _after_new_shards(self, bid: bytes) -> list[Action]:
+        actions = self._maybe_deliver(bid)
+        for peer in sorted(self.peer_has):  # contacts already open get new shards straight away
             actions += self._offer(peer)
         return actions
+
+    def _maybe_deliver(self, bid: bytes) -> list[Action]:
+        held = self._shards_of(bid)
+        header = held[0].header
+        if header.dst_sa != self.config.sa or bid in self.delivered or len(held) < header.k:
+            return []
+        data = erasure.decode({s.index: s.data for s in held}, header.k, header.m)
+        self.delivered.add(bid)
+        return [
+            Store(table=T_DELIVERED, key=bid, value=b""),
+            Deliver(bundle=encode_bundle(Bundle(header, data))),
+        ]
+
+    def _shards_of(self, bid: bytes) -> list[Shard]:
+        return [s for s in self.shards.values() if s.header.bundle_id == bid]
+
+    # --- delivery ACKs ------------------------------------------------------
 
     def _on_ack(self, bid: bytes, source: str | None) -> list[Action]:
         if source in self.peer_acks:
@@ -138,8 +174,9 @@ class NodeCore:
             return []
         self.acks.add(bid)
         actions: list[Action] = [Store(table=T_ACKS, key=bid, value=b"")]
-        if self.bundles.pop(bid, None):
-            actions.append(Delete(table=T_BUNDLES, key=bid))
+        for s in self._shards_of(bid):
+            del self.shards[s.shard_id]
+            actions.append(Delete(table=T_SHARDS, key=s.shard_id))
         if bid in self.origin:
             self.origin.discard(bid)
             actions += [Delete(table=T_ORIGIN, key=bid), Delivered(bundle_id=bid)]

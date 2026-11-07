@@ -18,5 +18,4 @@ messages:
     from: clinic
     to: hospital
     priority: ROUTINE
-    lifetime_s: 259200
     text: "Referral: 54F, 3 days fever, suspected malaria, RDT positive."
