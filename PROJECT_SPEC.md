@@ -175,7 +175,7 @@ Two signature algorithms are a deliberate trade-off. Node keys are tied to hardw
 
 ### 7.4 Payload encryption (endpoint only)
 1. Generate a random 256-bit content key.
-2. Encrypt the signed FHIR-lite payload with **AES-256-GCM** (or XChaCha20-Poly1305; pick one in implementation and record it).
+2. Encrypt the signed FHIR-lite payload with **XChaCha20-Poly1305** (libsodium via PyNaCl). Random 192-bit nonces are safe, and it is fast in software on every Pi.
 3. Wrap the content key for the recipient's X25519 key (ECIES-style: ephemeral X25519 → HKDF-SHA256 → AEAD).
 4. Pad to the size bucket, then erasure-code (**encrypt-then-shard**).
 
@@ -260,10 +260,13 @@ Each shard is written to storage in **one atomic transaction** before it counts 
 
 ### 9.1 Modules (`node/`)
 
+The node logic is a **sans-IO core**: `NodeCore.handle(event) -> list[Action]`, with no direct access to clocks, radios, disk or randomness. The emulator and the real daemon are two drivers for the same core.
+
 | Module | Responsibility |
 |---|---|
-| `daemon.py` | asyncio entry point; runs discovery, encounters, routing, maintenance. |
-| `transport/` | Abstract `Link` interface; `wifi.py`, `ble.py`, `lora.py`, and `virtual.py` (used by the emulator). |
+| `core.py` / `events.py` | Sans-IO state machine; event and action types. |
+| `daemon.py` | asyncio driver for real hardware (hardware phase). |
+| `hw/` | `SecureElement`, `Rtc`, `PowerSource`, `Radio`, `Entropy` interfaces. Virtual implementations live in `simulation/`; real drivers are added in the hardware phase. |
 | `bundle.py` | CBOR header/shard encoding, Merkle tree, verification. |
 | `erasure.py` | Thin wrapper over **zfec** (proven Reed-Solomon library). No hand-rolled GF(2⁸) maths. |
 | `crypto.py` | Node-side signing (secure element via `cryptoauthlib`), certificate and revocation checks. |
@@ -273,10 +276,10 @@ Each shard is written to storage in **one atomic transaction** before it counts 
 | `clock.py` | RTC read, HLC, Bundle Age accounting. |
 | `api.py` | Local HTTP/WebSocket API for the attached endpoint (site nodes only). |
 
-Endpoint-only crypto (payload encryption and decryption, inner signatures, sharding) lives in the **interface** package, never in `node/`.
+Endpoint-only crypto (payload encryption and decryption, inner signatures, sharding, FHIR-lite) lives in a separate **`endpoint/`** package. `node/` must never import it, and a test enforces that boundary.
 
 ### 9.2 Storage
-- SQLite with `journal_mode=WAL`, `synchronous=FULL`, on the LUKS volume.
+- SQLCipher (key held in the secure element) with `journal_mode=WAL`, `synchronous=FULL`, on the LUKS volume. The emulator uses the same SQLCipher path.
 - Tables: `shards`, `bundles` (header cache), `custody_ledger` (append-only, hash-chained), `acks`, `revocations`, `prophet`, `peers`, `telemetry`.
 - Eviction follows §6.3. Above 95% capacity, refuse incoming shards that would need a forbidden eviction.
 - Power loss: rely on SQLite WAL atomicity plus a UPS HAT that signals the daemon to flush and shut down cleanly (§11.2).
@@ -332,7 +335,9 @@ FastAPI backend and a **messaging-style PWA**. It runs locally on the laptop or 
 ## 12. Emulator
 
 ### 12.1 Principle
-The emulator runs the **real `node/` daemon code**. It replaces only the radios (`transport/virtual.py`), the clock, the secure element (a software P-256 stand-in) and the storage path. If the emulator works, the protocol logic works.
+The emulator drives the **real `NodeCore`** in a single process on a **discrete-event virtual clock**, so days of scenario run in seconds and every run can be reproduced from its seed. Only the hardware is virtual: radios, RTC, power/UPS, a software P-256 secure element, and seeded entropy. If the emulator works, the protocol logic works.
+
+Simulated power cuts throw away a node's in-memory state and rebuild it from its storage file. True mid-write crashes are covered separately by a subprocess `SIGKILL` test against `storage.py`.
 
 ### 12.2 Physical pressures modelled
 
@@ -392,8 +397,9 @@ dtn-medical-mesh/
 │   ├── dpia_template.md
 │   ├── requirements.md          # REQ-* IDs
 │   └── hardware/                # BOM, wiring, enclosure, power notes
-├── node/                        # daemon (§9)
-├── interface/                   # FastAPI + PWA + map, endpoint crypto (§10)
+├── node/                        # sans-IO core + daemon (§9)
+├── endpoint/                    # endpoint-only crypto, FHIR-lite (§7.4, §6.4)
+├── interface/                   # FastAPI + PWA + map (§10)
 ├── simulation/                  # emulator + scenarios (§12)
 ├── validation/                  # tests + trace_matrix.py (§13, §15)
 └── deploy/                      # systemd unit, node.toml examples, image build
@@ -407,6 +413,8 @@ dtn-medical-mesh/
 - **Bench (Phase 2):** real link-up time, throughput per contact, power-cut recovery, enclosure temperature, LoRa range and duty cycle.
 
 ## 16. Roadmap
+
+Step-by-step breakdown: [`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md). There is no hardware yet, so Phase 1 below is built and validated entirely in emulation.
 
 | Phase | Scope | Exit criteria |
 |---|---|---|
@@ -439,7 +447,7 @@ Decisions made while turning the original design chat into this spec:
 | Repo name `dtn-mesh-medical` | `dtn-medical-mesh` | Matches the actual repository. |
 
 ## 18. Open questions
-1. AEAD choice: AES-256-GCM or XChaCha20-Poly1305 (XChaCha's larger nonces are safer; AES has hardware acceleration on Pi 5 only).
+1. ~~AEAD choice~~ (decided: XChaCha20-Poly1305).
 2. PRoPHET parameters (P_init, β, γ, ageing unit) and the warm-up threshold *N*: tune in Phase 1.
 3. Pseudonym epoch length vs. how often endpoints receive directory updates.
 4. Size-bucket boundaries for large media; chunking above 32 MB.
