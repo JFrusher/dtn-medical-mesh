@@ -40,7 +40,7 @@ node/
   routing.py         # epidemic, PRoPHET
   summary.py         # Bloom + exact summaries
   clock.py           # HLC, Bundle Age
-  pki.py             # certs, revocation, directory, pseudonyms
+  pki.py             # certs, revocation, directory
   hw/                # interfaces + virtual implementations
     secure_element.py  rtc.py  power.py  radio.py  entropy.py
   daemon.py          # asyncio driver for real hardware (Phase H1)
@@ -113,8 +113,8 @@ Goal: in the emulator, a clinic endpoint sends one text note and the hospital en
 | P3.S04 | Peer authentication on `ContactUp` (certificate exchange; check validity and revocation). | `node/core.py`, tests | same |
 | P3.S05 | Revocation lists: hub-signed, top priority, spread over the mesh; reject the revoked node's shards and receipts. | `node/pki.py`, `node/core.py`, tests | `uv run pytest validation/node/test_revocation.py` |
 | P3.S06 | Short-lived certificates (14 days) renewed only when docked at a hub; expiry is checked against the HLC (stub until P4.S06). | `node/pki.py`, tests | `uv run pytest validation/node/test_cert_renewal.py` |
-| P3.S07 | Endpoint directory: hub-signed endpoint keys and pseudonym keys, spread over the mesh. | `node/pki.py`, `endpoint/directory.py`, tests | `uv run pytest validation/endpoint/test_directory.py` |
-| P3.S08 | Service areas and rotating pseudonyms (§7.5): `dst_pseudonym = HMAC(key, epoch)[:16]`; delivery to every site node in the SA; only the matching endpoint decrypts. | `endpoint/pseudonym.py`, `node/core.py`, tests | `uv run pytest validation/e2e/test_pseudonyms.py` |
+| P3.S07 | Endpoint directory: hub-signed endpoint public keys and service areas, spread over the mesh. | `node/pki.py`, `endpoint/directory.py`, tests | `uv run pytest validation/endpoint/test_directory.py` |
+| P3.S08 | Recipient privacy by trial decryption (§7.5): headers carry no endpoint identity; delivery to every site node in the SA; only the intended endpoint can open it, and the rest ignore it silently. | `simulation/endpoints.py`, tests | `uv run pytest validation/e2e/test_privacy.py` |
 | P3.S09 | Bidirectional: hospital replies to the clinic (`Communication.inResponseTo`). | `simulation/endpoints.py`, e2e test | `uv run pytest validation/e2e` |
 | P3.S10 | Per-injector rate limits (anti-flood). | `node/core.py`, tests | `uv run pytest validation/node/test_rate_limit.py` |
 

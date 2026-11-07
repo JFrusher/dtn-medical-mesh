@@ -59,7 +59,7 @@ Transport of **non-time-critical** clinical information between registered healt
 | **Bundle** | One encrypted clinical message: a header plus ciphertext. |
 | **Shard** | One of the *k + m* erasure-coded pieces of a bundle's ciphertext. Each shard can be verified on its own. |
 | **Service area (SA)** | A public, stable routing destination: a hub, or a group of clinics. Relays route on SAs only. |
-| **Endpoint pseudonym** | A rotating identifier for the real sender or recipient, resolvable only by endpoints and hubs. |
+| **Trial decryption** | Every endpoint in the destination service area tries to open a delivered bundle; only the intended recipient can. The header names no recipient. |
 | **Custody** | A node's signed acceptance of responsibility for a set of shards. |
 | **Delivery ACK** | Signed confirmation from the destination endpoint that the bundle was rebuilt and decrypted. |
 | **HLC** | Hybrid Logical Clock: wall-clock time combined with a logical counter. |
@@ -103,7 +103,6 @@ Our own **versioned CBOR** encoding, borrowing concepts from BPv7 (RFC 9171): en
 | `version` | uint | Format version. |
 | `bundle_id` | 32 B | SHA-256 of the ciphertext Merkle root plus creation HLC. Content-addressed. |
 | `src_sa` / `dst_sa` | str | Public **service-area** IDs. Routing uses only these. |
-| `dst_pseudonym` | 16 B | Rotating pseudonym of the recipient endpoint (§7.5). |
 | `priority` | enum | `CRITICAL` / `URGENT` / `ROUTINE` / `TELEMETRY` (§6.3). |
 | `created_hlc` | HLC | Creation time (§8.9). |
 | `lifetime_s` | uint | TTL in seconds. |
@@ -155,7 +154,7 @@ Supported v1 payload sizes run from bytes (vitals) to tens of MB (media). Large 
 | Forged custody receipts | Receipts are signed by the node's secure element and hash-chained (§8.5). |
 | Bit rot, transmission corruption | Shards are checked against the Merkle tree; *k*-of-*(k+m)* erasure coding. |
 | Replay | Content-addressed bundle IDs, HLC ordering, and receipts and ACKs that bind specific IDs. |
-| Traffic analysis | Service-area routing, rotating endpoint pseudonyms, size buckets. Residual risk recorded in the DPIA. |
+| Traffic analysis | Service-area routing, no recipient or sender identity in headers (trial decryption), size buckets. Residual risk recorded in the DPIA. |
 | Clock tampering or reset | RTC, HLC, Bundle Age; no security decision depends only on wall-clock time (§8.9). |
 
 ### 7.2 Identities and algorithms
@@ -181,17 +180,17 @@ Two signature algorithms are a deliberate trade-off. Node keys are tied to hardw
 
 Use the vetted `cryptography` library. No hand-rolled cryptographic primitives.
 
-### 7.5 Pseudonyms and service areas
+### 7.5 Service areas and recipient privacy
 - Relays route on **public, stable SA IDs**: a hub, or a named group of clinics. This is what PRoPHET learns.
-- The real recipient is a `dst_pseudonym = HMAC-SHA256(endpoint_pseudonym_key, epoch)[:16]`, which rotates every epoch (default 24 h). Only the endpoint itself and its hub's directory can resolve it.
-- Origins are not identified in the header at all. Authorship lives only in the inner signature.
-- Delivery inside an SA: a bundle bound for a clinic SA is delivered to **every site node in that SA**. Each holds ciphertext only, and only the endpoint whose current pseudonym matches can decrypt it.
+- The header names **neither sender nor recipient endpoint**. Authorship lives only in the inner signature, and the recipient is implicit in the encryption key.
+- Delivery inside an SA: a bundle bound for an SA is delivered to **every site node in that SA**. Every endpoint there tries to open it (**trial decryption**), and only the intended recipient succeeds. A failed attempt costs one X25519 exchange and one AEAD tag check, which is negligible at pilot scale.
+- *Decision (replaces the earlier pseudonym design):* an HMAC pseudonym keyed by the recipient's secret can't be computed by senders, and a shared group secret adds a key to distribute and rotate. Trial decryption hides the recipient completely with no extra keys.
 
 ### 7.6 PKI, provisioning and revocation
 - **Provisioning:** in person at a hub. The node's secure element generates its key, and the hub CA issues a certificate binding `node_id`, role and SA.
 - **Operational certificates:** short-lived (default **14 days**), renewed **only when docked** at a hub. A node that misses renewal stops being trusted automatically.
 - **Revocation:** the hub signs a revocation list. It spreads over the mesh with top priority and over LoRa. Nodes reject shards, headers and receipts from revoked or expired certificates.
-- **Endpoint directory:** hubs publish signed endpoint public-key and pseudonym-key bundles. They spread over the mesh so clinics can encrypt to recipients they have never met.
+- **Endpoint directory:** hubs publish signed bundles of endpoint public keys and service areas. They spread over the mesh so clinics can encrypt to recipients they have never met.
 - **Root CA** stays offline. Losing or rotating it is a documented manual procedure.
 
 ### 7.7 Data at rest
@@ -374,7 +373,7 @@ The project follows the *structure* of these frameworks so a future partner can 
 |---|---|
 | IEC 62304 | Software requirements list with IDs, architecture document, SOUP list (zfec, cryptography, etc.), configuration management via git. |
 | ISO 14971 | `docs/hazard_log.md`: hazards (e.g. undetected non-delivery, wrong recipient, corruption, delay mistaken for delivery), causes, controls, residual risk. |
-| UK/EU GDPR Art. 9 | DPIA template; data-flow map; metadata minimisation and pseudonymisation rationale. |
+| UK/EU GDPR Art. 9 | DPIA template; data-flow map; metadata minimisation rationale (no endpoint identities in headers). |
 | HIPAA §164.312 | Mapping of access control, audit (custody ledger), integrity (Merkle + signatures) and transmission security (E2E encryption). |
 | UK DCB0129/0160 (if piloted in UK) | Placeholder for clinical safety case; needs a partner's Clinical Safety Officer. |
 
@@ -442,15 +441,15 @@ Decisions made while turning the original design chat into this spec:
 | CartoDB online tiles | **No basemap** | Pilot sites may be offline. |
 | Terminal ASCII map + rich dashboard | **Web map only, real node code** | One UI and one telemetry schema. |
 | "100% COMPLIANT", "data can never be lost" | Design-aligned, no claims; **no *silent* loss** | Honest and testable. |
-| Stable destination IDs | **Service-area routing + rotating endpoint pseudonyms** | Privacy without breaking PRoPHET. |
+| Stable destination IDs | **Service-area routing + trial decryption** (no recipient in header) | Privacy without breaking PRoPHET; pseudonyms couldn't be computed by senders. |
 | Fixed k=4, m=2 | **Parity scales with priority** | More paths for important data. |
 | Repo name `dtn-mesh-medical` | `dtn-medical-mesh` | Matches the actual repository. |
 
 ## 18. Open questions
 1. ~~AEAD choice~~ (decided: XChaCha20-Poly1305).
 2. PRoPHET parameters (P_init, β, γ, ageing unit) and the warm-up threshold *N*: tune in Phase 1.
-3. Pseudonym epoch length vs. how often endpoints receive directory updates.
-4. Size-bucket boundaries for large media; chunking above 32 MB.
+3. ~~Pseudonym epoch length~~ (pseudonyms dropped in favour of trial decryption, §7.5).
+4. Size-bucket boundaries for large media. (Decided: payloads over 32 MB are rejected at send.)
 5. BLE rotating token scheme details and its privacy properties.
 6. Endpoint key recovery when a clinic laptop is lost (re-provision at a hub? escrow?).
 7. Whether relays should drop **TELEMETRY** entirely when storage is under pressure.

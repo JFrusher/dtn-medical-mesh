@@ -25,7 +25,7 @@ Format: `REQ-<AREA>-<NN>`. Spec references are to `PROJECT_SPEC.md`.
 | REQ-SEC-06 | Peers authenticate each other's certificates (validity, revocation) before exchanging shards. | §8.2 |
 | REQ-SEC-07 | Hub-signed revocation lists spread over the mesh with top priority; revoked nodes' shards and receipts are rejected. | §7.6 |
 | REQ-SEC-08 | Operational certificates are short-lived (default 14 days) and renewed only when docked at a hub. | §7.6 |
-| REQ-SEC-09 | Headers carry no patient identifiers or endpoint identities; recipients appear only as rotating pseudonyms; routing uses service-area IDs. | §6.1, §7.5 |
+| REQ-SEC-09 | Headers carry no patient identifiers or endpoint identities; the recipient is implicit in the encryption (trial decryption); routing uses service-area IDs. | §6.1, §7.5 |
 | REQ-SEC-10 | Ciphertext is padded to fixed size buckets. | §6.1 |
 | REQ-SEC-11 | Node storage is encrypted at rest with a key held by the secure element. | §7.7 |
 | REQ-SEC-12 | Per-injector rate limits stop one node flooding the mesh. | §7.1 |
