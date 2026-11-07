@@ -15,6 +15,7 @@ class NodeView(TypedDict):
     shards: int
     used_bytes: int
     route: list[tuple[float, float]] | None  # waypoints of a moving node, for drawing its road
+    hostile: bool  # emulator only: an attacker injected by the scenario
 
 
 class Stats(TypedDict):
@@ -22,6 +23,7 @@ class Stats(TypedDict):
     delivered: int
     in_transit: int
     not_delivered: int
+    rejected: int  # forged, corrupt or unauthenticated frames refused by honest nodes
 
 
 class Telemetry(TypedDict):

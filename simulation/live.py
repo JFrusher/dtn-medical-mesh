@@ -18,6 +18,7 @@ from endpoint.state import Status
 from interface.app import MessageIn, create_app
 from interface.telemetry import Telemetry
 from node.bundle import Priority
+from node.core import NodeCore
 from simulation.mobility import Route
 from simulation.runner import RunResult, build
 from simulation.scenario import load_scenario
@@ -63,6 +64,7 @@ class LiveSim:
                     "shards": len(n.core.shards) if n.up else 0,
                     "used_bytes": n.core.used_bytes if n.up else 0,
                     "route": list(n.mobility.waypoints) if isinstance(n.mobility, Route) else None,
+                    "hostile": n.core_class is not NodeCore,
                 }
             )
         statuses = [e.status(b) for e in self.r.endpoints.values() for b in e.sent]
@@ -79,6 +81,11 @@ class LiveSim:
                 "delivered": statuses.count(Status.DELIVERED),
                 "in_transit": statuses.count(Status.IN_TRANSIT),
                 "not_delivered": statuses.count(Status.NOT_DELIVERED),
+                "rejected": sum(
+                    sum(n.core.dropped.values())
+                    for n in w.nodes.values()
+                    if n.up and n.core_class is NodeCore
+                ),
             },
         }
 

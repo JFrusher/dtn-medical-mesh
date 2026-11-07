@@ -12,7 +12,7 @@
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["id", "role", "sa", "x", "y", "up", "battery_pct", "shards", "used_bytes", "route"],
+        "required": ["id", "role", "sa", "x", "y", "up", "battery_pct", "shards", "used_bytes", "route", "hostile"],
         "properties": {
           "id": {"type": "string"},
           "role": {"enum": ["hub", "site", "mule", "relay"]},
@@ -23,7 +23,8 @@
           "battery_pct": {"type": ["number", "null"]},
           "shards": {"type": "integer"},
           "used_bytes": {"type": "integer"},
-          "route": {"type": ["array", "null"], "description": "waypoints [x, y] of a moving node"}
+          "route": {"type": ["array", "null"], "description": "waypoints [x, y] of a moving node"},
+          "hostile": {"type": "boolean", "description": "emulator only: an attacker"}
         }
       }
     },
@@ -32,7 +33,7 @@
     "events": {"type": "array", "items": {"type": "string"}, "description": "recent log lines, each starting with [hh:mm:ss]"},
     "stats": {
       "type": "object",
-      "required": ["sent", "delivered", "in_transit", "not_delivered"]
+      "required": ["sent", "delivered", "in_transit", "not_delivered", "rejected"]
     }
   }
 }

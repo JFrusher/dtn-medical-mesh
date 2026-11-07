@@ -3,12 +3,12 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Medical Mesh</title>
+  <title>Satchel</title>
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
   <header class="bar">
-    <h1>Medical mesh</h1>
+    <h1>Satchel</h1>
     <span class="clock" id="clock" aria-live="off">Day 1, 00:00</span>
     <div class="speed" role="group" aria-label="Simulation speed">
       <button data-paused="true" aria-label="Pause">❚❚</button>
@@ -34,6 +34,7 @@
       <span><i class="p"></i>Hospital or clinic</span>
       <span><i class="c"></i>Vehicle or person</span>
       <span><i class="r"></i>Relay</span>
+      <span class="hostile-key" hidden><i class="h"></i>Attacker (emulated)</span>
     </div>
     <button class="activity" aria-controls="log" aria-expanded="false">Show activity</button>
   </footer>
@@ -72,17 +73,21 @@
 
     const counts = document.getElementById("counts"), clock = document.getElementById("clock");
     const ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws`);
-    ws.onmessage = ev => {
-      const t = JSON.parse(ev.data), s = t.stats;
+    const render = t => {
+      const s = t.stats;
       map.draw(t);
+      document.querySelector(".hostile-key").hidden = !t.nodes.some(n => n.hostile);
       const h = Math.floor(t.t / 3600), m = Math.floor(t.t % 3600 / 60);
       clock.textContent = `Day ${Math.floor(h / 24) + 1}, ${String(h % 24).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
       counts.innerHTML = `<span><b>${s.delivered}</b>delivered</span><span><b>${s.in_transit}</b>in transit</span>`
-        + `<span class="${s.not_delivered ? "bad" : ""}"><b>${s.not_delivered}</b>not delivered</span>`;
+        + `<span class="${s.not_delivered ? "bad" : ""}"><b>${s.not_delivered}</b>not delivered</span>`
+        + (s.rejected ? `<span><b>${s.rejected.toLocaleString()}</b>bad frames refused</span>` : "");
       log.textContent = t.events.join("\n");
       for (const b of buttons) b.setAttribute("aria-pressed",
         b.dataset.paused ? t.paused : !t.paused && Number(b.dataset.speed) === t.speed);
     };
+    ws.onmessage = ev => render(JSON.parse(ev.data));
+    window.render = render;  // lets tools/record_gifs.py draw exact frames
   </script>
 </body>
 </html>

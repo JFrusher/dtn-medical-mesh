@@ -52,10 +52,11 @@ export class NetMap {
       shape = el("polygon", { points: `${x},${y - r} ${x + r},${y} ${x},${y + r} ${x - r},${y}`,
         class: n.up ? "relay" : "off", "stroke-width": 1.5 * u });
     } else {
-      shape = el("circle", { cx: x, cy: y, r: 5.5 * u, class: n.up ? "carrier" : "off" });
+      shape = el("circle", { cx: x, cy: y, r: 5.5 * u, class: !n.up ? "off" : n.hostile ? "hostile" : "carrier",
+        "stroke-width": 2 * u });
     }
     const title = document.createElementNS(NS, "title");
-    title.textContent = `${pretty(n.id)}${n.up ? "" : ", powered off"}`
+    title.textContent = `${pretty(n.id)}${n.hostile ? " (attacker)" : ""}${n.up ? "" : ", powered off"}`
       + (n.shards ? `, carrying ${n.shards} message pieces` : "")
       + (n.battery_pct == null ? "" : `, battery ${Math.round(n.battery_pct)}%`);
     g.append(shape, title);
@@ -69,6 +70,7 @@ export class NetMap {
     if (place) label(pretty(n.id), "name", 4.5, n.role === "hub" ? 15 : 13, 600);
     if (n.shards) label(place ? `${n.shards} waiting` : `carrying ${n.shards}`, "load", place ? 21 : 4.5, 12);
     if (!n.up) label("off", "minor", place ? 21 : 4.5, 12);
+    if (n.hostile && n.up) label(pretty(n.id), "minor", 4.5, 12);
     return g;
   }
 }
