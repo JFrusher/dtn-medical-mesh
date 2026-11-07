@@ -48,7 +48,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.fast
         else []
     )
-    pytest.main(
+    rc = pytest.main(
         ["-q", "-p", "no:cacheprovider", str(ROOT / "validation"), *extra], plugins=[collector]
     )
 
@@ -81,7 +81,7 @@ def main(argv: list[str] | None = None) -> int:
     print(report)
     if args.out:
         args.out.write_text(report)
-    return 1 if problems else 0
+    return 1 if problems or rc else 0  # untagged test failures count too
 
 
 if __name__ == "__main__":
