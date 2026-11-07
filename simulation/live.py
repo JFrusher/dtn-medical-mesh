@@ -18,6 +18,7 @@ from endpoint.state import Status
 from interface.app import MessageIn, create_app
 from interface.telemetry import Telemetry
 from node.bundle import Priority
+from simulation.mobility import Route
 from simulation.runner import RunResult, build
 from simulation.scenario import load_scenario
 from simulation.virtual_hw import SIM_EPOCH
@@ -61,6 +62,7 @@ class LiveSim:
                     "battery_pct": round(n.battery.pct, 1) if n.battery else None,
                     "shards": len(n.core.shards) if n.up else 0,
                     "used_bytes": n.core.used_bytes if n.up else 0,
+                    "route": list(n.mobility.waypoints) if isinstance(n.mobility, Route) else None,
                 }
             )
         statuses = [e.status(b) for e in self.r.endpoints.values() for b in e.sent]

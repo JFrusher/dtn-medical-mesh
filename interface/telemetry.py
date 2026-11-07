@@ -14,6 +14,7 @@ class NodeView(TypedDict):
     battery_pct: float | None
     shards: int
     used_bytes: int
+    route: list[tuple[float, float]] | None  # waypoints of a moving node, for drawing its road
 
 
 class Stats(TypedDict):

@@ -12,7 +12,7 @@
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["id", "role", "sa", "x", "y", "up", "battery_pct", "shards", "used_bytes"],
+        "required": ["id", "role", "sa", "x", "y", "up", "battery_pct", "shards", "used_bytes", "route"],
         "properties": {
           "id": {"type": "string"},
           "role": {"enum": ["hub", "site", "mule", "relay"]},
@@ -22,7 +22,8 @@
           "up": {"type": "boolean"},
           "battery_pct": {"type": ["number", "null"]},
           "shards": {"type": "integer"},
-          "used_bytes": {"type": "integer"}
+          "used_bytes": {"type": "integer"},
+          "route": {"type": ["array", "null"], "description": "waypoints [x, y] of a moving node"}
         }
       }
     },

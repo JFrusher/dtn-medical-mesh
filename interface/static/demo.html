@@ -3,52 +3,83 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Medical Mesh Demo</title>
+  <title>Medical Mesh</title>
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-  <header>
-    <h1>dtn-medical-mesh · live emulator</h1>
-    <span class="stats" id="stats" aria-live="polite"></span>
-    <div class="controls" role="group" aria-label="Simulation speed">
-      <button data-paused="true">Pause</button>
+  <header class="bar">
+    <h1>Medical mesh</h1>
+    <span class="clock" id="clock" aria-live="off">Day 1, 00:00</span>
+    <div class="speed" role="group" aria-label="Simulation speed">
+      <button data-paused="true" aria-label="Pause">❚❚</button>
       <button data-speed="1">1×</button>
       <button data-speed="60">60×</button>
       <button data-speed="600">600×</button>
     </div>
+    <div class="counts" id="counts" aria-live="polite"></div>
   </header>
-  <p class="banner" role="note">Not for emergencies. Messages travel with vehicles and staff, so delivery can take hours and timing is never guaranteed.</p>
-  <main>
-    <section id="left" aria-label="Clinic messaging"></section>
-    <section aria-label="Network map">
-      <h2>Network <span class="stats">(schematic, no basemap)</span></h2>
-      <svg id="map" role="img" aria-label="Mesh nodes and open links"></svg>
-      <div class="legend">
-        <span>■ hub</span><span>▢ clinic site</span><span>● vehicle / person</span><span>▲ relay</span>
-        <span>— Wi-Fi contact</span><span>◯ LoRa broadcast</span><span>number = shards held</span>
-      </div>
-      <pre class="log" id="log" aria-label="Event log"></pre>
-    </section>
-    <section id="right" aria-label="Hospital messaging"></section>
+
+  <main class="stage">
+    <svg id="map" role="img" aria-label="Clinics, vehicles and relays, with the contacts open right now"></svg>
+    <button class="open left" data-drawer="left" aria-controls="left"></button>
+    <button class="open right" data-drawer="right" aria-controls="right"></button>
+    <aside class="drawer left" id="left" hidden></aside>
+    <aside class="drawer right" id="right" hidden></aside>
+    <pre class="log" id="log" hidden aria-label="Activity"></pre>
   </main>
+
+  <footer class="foot">
+    <p class="banner" role="note">Not for emergencies. Messages travel with vehicles and staff, so delivery can take hours and timing is never guaranteed.</p>
+    <div class="key" aria-hidden="true">
+      <span><i class="p"></i>Hospital or clinic</span>
+      <span><i class="c"></i>Vehicle or person</span>
+      <span><i class="r"></i>Relay</span>
+    </div>
+    <button class="activity" aria-controls="log" aria-expanded="false">Show activity</button>
+  </footer>
+
   <script type="module">
     import { Chat } from "/static/chat.js";
-    import { NetMap } from "/static/map.js";
+    import { NetMap, pretty } from "/static/map.js";
+
     const endpoints = await (await fetch("/api/endpoints")).json();
-    const hub = endpoints.find(e => e.name.includes("hospital")) || endpoints[endpoints.length - 1];
+    const hub = endpoints.find(e => e.name.includes("hospital")) ?? endpoints.at(-1);
     const site = endpoints.find(e => e !== hub);
-    new Chat(document.getElementById("left"), endpoints, site.name);
-    new Chat(document.getElementById("right"), endpoints, hub.name);
-    const map = new NetMap(document.getElementById("map"), document.getElementById("log"), document.getElementById("stats"));
-    const buttons = document.querySelectorAll(".controls button");
+    const chats = { left: new Chat(document.getElementById("left"), endpoints, site.name),
+                    right: new Chat(document.getElementById("right"), endpoints, hub.name) };
+
+    for (const btn of document.querySelectorAll(".open")) {
+      const side = btn.dataset.drawer, drawer = document.getElementById(side);
+      const label = () => { btn.innerHTML = `${pretty(chats[side].me.value)}<span class="n">${chats[side].count || ""}</span>`; };
+      btn.onclick = () => { drawer.hidden = false; btn.hidden = true; drawer.querySelector("textarea").focus(); };
+      drawer.addEventListener("close-drawer", () => { drawer.hidden = true; btn.hidden = false; btn.focus(); });
+      chats[side].onChange = label; label();
+    }
+
+    const log = document.getElementById("log"), activity = document.querySelector(".activity");
+    activity.onclick = () => {
+      log.hidden = !log.hidden;
+      activity.setAttribute("aria-expanded", !log.hidden);
+      activity.textContent = log.hidden ? "Show activity" : "Hide activity";
+    };
+
+    const map = new NetMap(document.getElementById("map"));
+    const buttons = document.querySelectorAll(".speed button");
     for (const b of buttons) b.onclick = () => fetch("/api/control", {
       method: "POST", headers: { "content-type": "application/json" },
       body: JSON.stringify(b.dataset.paused ? { paused: true } : { speed: Number(b.dataset.speed), paused: false }),
     });
+
+    const counts = document.getElementById("counts"), clock = document.getElementById("clock");
     const ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws`);
     ws.onmessage = ev => {
-      const t = JSON.parse(ev.data);
+      const t = JSON.parse(ev.data), s = t.stats;
       map.draw(t);
+      const h = Math.floor(t.t / 3600), m = Math.floor(t.t % 3600 / 60);
+      clock.textContent = `Day ${Math.floor(h / 24) + 1}, ${String(h % 24).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+      counts.innerHTML = `<span><b>${s.delivered}</b>delivered</span><span><b>${s.in_transit}</b>in transit</span>`
+        + `<span class="${s.not_delivered ? "bad" : ""}"><b>${s.not_delivered}</b>not delivered</span>`;
+      log.textContent = t.events.join("\n");
       for (const b of buttons) b.setAttribute("aria-pressed",
         b.dataset.paused ? t.paused : !t.paused && Number(b.dataset.speed) === t.speed);
     };
