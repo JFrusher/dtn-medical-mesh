@@ -42,11 +42,16 @@ class Role(Enum):
     RELAY = "relay"
 
 
+class StorageFull(Exception):
+    """The site node cannot hold its own endpoint's new bundle; the endpoint must keep it."""
+
+
 @dataclass(frozen=True)
 class NodeConfig:
     node_id: str
     role: Role
     sa: str | None  # service area served; None for mules and relays
+    capacity_bytes: int = 32 * 1024**3
 
     def __post_init__(self) -> None:
         if (self.role in (Role.HUB, Role.SITE)) != (self.sa is not None):
@@ -62,6 +67,7 @@ class NodeCore:
         self.acks: set[bytes] = set(records.get(T_ACKS, {}))
         self.origin: set[bytes] = set(records.get(T_ORIGIN, {}))
         self.delivered: set[bytes] = set(records.get(T_DELIVERED, {}))
+        self.used_bytes = sum(len(s.data) for s in self.shards.values())
         self.dropped = Counter[str]()
         self.peer_has: dict[str, set[bytes]] = {}  # connected peers' shard IDs, from their summary
         self.peer_acks: dict[str, set[bytes]] = {}
@@ -126,8 +132,11 @@ class NodeCore:
         bid = bids.pop()
         if bid in self.acks or any(s.shard_id in self.shards for s in shards):
             return []
+        actions = self._make_room(shards[0], sum(len(s.data) for s in shards))
+        if actions is None:
+            raise StorageFull(f"{self.config.node_id} cannot hold bundle {bid.hex()[:12]}")
         self.origin.add(bid)
-        actions: list[Action] = [Store(table=T_ORIGIN, key=bid, value=b"")]
+        actions.append(Store(table=T_ORIGIN, key=bid, value=b""))
         for s in shards:
             actions += self._store_shard(s)
         return actions + self._after_new_shards(bid)
@@ -138,11 +147,50 @@ class NodeCore:
             self.peer_has[source].add(sid)
         if sid in self.shards or bid in self.acks:
             return []
-        return self._store_shard(shard) + self._after_new_shards(bid)
+        evictions = self._make_room(shard, len(shard.data))
+        if evictions is None:
+            self.dropped["full"] += 1  # refusing is safe: the sender keeps its copy
+            return []
+        return evictions + self._store_shard(shard) + self._after_new_shards(bid)
+
+    def _make_room(self, incoming: Shard, size: int) -> list[Action] | None:
+        """Evict less important shards to fit `size` bytes, or return None and evict nothing.
+
+        Only strictly lower classes go (TELEMETRY first, oldest first), so CRITICAL is never
+        evicted for a lower class, and the origin's own copies are never evicted (§6.3, §8.5).
+        """
+        free = self.config.capacity_bytes - self.used_bytes
+        if size <= free:
+            return []
+        candidates = sorted(
+            (
+                s
+                for s in self.shards.values()
+                if s.header.priority > incoming.header.priority
+                and s.header.bundle_id not in self.origin
+            ),
+            key=lambda s: (-s.header.priority, s.header.created, s.shard_id),
+        )
+        victims: list[Shard] = []
+        for s in candidates:
+            if free >= size:
+                break
+            victims.append(s)
+            free += len(s.data)
+        if free < size:
+            return None
+        self.dropped["evicted"] += len(victims)
+        return [self._remove_shard(s) for s in victims]
 
     def _store_shard(self, shard: Shard) -> list[Action]:
         self.shards[shard.shard_id] = shard
+        self.used_bytes += len(shard.data)
         return [Store(table=T_SHARDS, key=shard.shard_id, value=encode_shard(shard))]
+
+    def _remove_shard(self, shard: Shard) -> Delete:
+        del self.shards[shard.shard_id]
+        self.used_bytes -= len(shard.data)
+        return Delete(table=T_SHARDS, key=shard.shard_id)
 
     def _after_new_shards(self, bid: bytes) -> list[Action]:
         actions = self._maybe_deliver(bid)
@@ -174,9 +222,7 @@ class NodeCore:
             return []
         self.acks.add(bid)
         actions: list[Action] = [Store(table=T_ACKS, key=bid, value=b"")]
-        for s in self._shards_of(bid):
-            del self.shards[s.shard_id]
-            actions.append(Delete(table=T_SHARDS, key=s.shard_id))
+        actions += [self._remove_shard(s) for s in self._shards_of(bid)]
         if bid in self.origin:
             self.origin.discard(bid)
             actions += [Delete(table=T_ORIGIN, key=bid), Delivered(bundle_id=bid)]
