@@ -36,7 +36,7 @@ def test_unauthenticated_peer_gets_nothing(case: str) -> None:
     elif case == "meant for another":
         msg = summary_from("P", "SOMEONE_ELSE")
     elif case == "stale":
-        msg["time"] = NOW - 4 * 3600
+        msg["hlc"] = (NOW - 4 * 3600) * 1000 << 16
     elif case == "tampered":
         msg["bloom"] = Bloom.of([b"forged"]).encode()
     elif case == "revoked":

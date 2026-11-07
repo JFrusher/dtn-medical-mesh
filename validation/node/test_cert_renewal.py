@@ -23,7 +23,7 @@ def dock(node_clock: float) -> list[dict[str, object]]:
     hub = make_node("H", Role.HUB, "SA_H")
     hub.clock_s = node_clock
     msg = summary_from("M", "H")
-    msg["time"] = int(node_clock)
+    msg["hlc"] = int(node_clock * 1000) << 16
     msg["sig"] = identity("M", Role.MULE, None).sign(_summary_signing_bytes(msg))
     return [f for f in frames(frame(hub, "M", msg)) if f["t"] == "renew"]
 
@@ -67,6 +67,6 @@ def test_unrenewed_node_expires_out_of_the_mesh() -> None:
     hub = make_node("H", Role.HUB, "SA_H")
     hub.clock_s = NOW + 15 * DAY
     msg = summary_from("M", "H")
-    msg["time"] = int(hub.clock_s)
+    msg["hlc"] = int(hub.clock_s * 1000) << 16
     assert frame(hub, "M", msg) == []
     assert hub.dropped["unauthenticated_peer"] == 1

@@ -83,7 +83,7 @@ def summary_from(
         "from": encode_cert(me.cert),
         "issuer": encode_cert(me.issuer) if me.issuer else None,
         "to": to,
-        "time": NOW + 60,
+        "hlc": (NOW + 60) * 1000 << 16,
     }
     msg["sig"] = me.sign(_summary_signing_bytes(msg))
     return msg

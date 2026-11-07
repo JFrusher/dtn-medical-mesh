@@ -24,6 +24,7 @@ from node.bundle import (
     encode_shard,
     shard_id,
 )
+from node.clock import Hlc
 from node.crypto import verify_p256
 from node.events import (
     Action,
@@ -70,6 +71,7 @@ T_DELIVERED = "delivered"  # bundles handed to the attached endpoint
 T_CERTS = "certs"
 T_DOCS = "docs"  # hub-signed documents: revocation lists and endpoint directories
 T_IDENTITY = "identity"  # renewed certificate, replacing the provisioned one
+T_META = "meta"  # node-wide values such as the last HLC
 SUMMARY_MAX_SKEW_S = 3600
 EXACT_AFTER_S = 2.0  # send exact lists if the link outlives the first transfer burst (§8.3)
 _SUMMARY_CONTEXT = b"dtn-medical-mesh/v1/summary"
@@ -106,7 +108,9 @@ class NodeCore:
             if cert.pubkey == identity.cert.pubkey and cert.not_after > identity.cert.not_after:
                 identity = replace(identity, cert=cert, issuer=issuer)
         self.identity = identity
-        self.clock_s = 0.0  # newest RTC reading seen; replaced by the HLC in P4.S06
+        stored_hlc = records.get(T_META, {}).get(b"hlc")
+        self.hlc = Hlc(int.from_bytes(stored_hlc) if stored_hlc else 0)
+        self._rtc_ok = False  # whether the event being handled carried an RTC reading
         self.certs: dict[str, Cert] = {
             k.decode(): decode_cert(v) for k, v in records.get(T_CERTS, {}).items()
         }
@@ -139,8 +143,23 @@ class NodeCore:
 
     def handle(self, event: Event) -> list[Action]:
         self._mono = event.mono
-        if event.wall is not None:
-            self.clock_s = max(self.clock_s, event.wall)
+        self._rtc_ok = event.wall is not None
+        self.hlc.tick(int(event.wall * 1000) if event.wall is not None else None)
+        actions = self._handle(event)
+        if any(isinstance(a, Store | Delete) for a in actions):
+            actions.append(Store(table=T_META, key=b"hlc", value=self.hlc.value.to_bytes(16)))
+        return actions
+
+    @property
+    def clock_s(self) -> float:
+        """Wall-clock seconds by the HLC: what certificate and TTL checks use."""
+        return self.hlc.wall_ms / 1000
+
+    @clock_s.setter
+    def clock_s(self, seconds: float) -> None:
+        self.hlc.value = max(self.hlc.value, int(seconds * 1000) << 16)
+
+    def _handle(self, event: Event) -> list[Action]:
         match event:
             case ContactUp(radio=RadioKind.WIFI):
                 return [self._send(event.peer_id, self._summary(event.peer_id))]
@@ -233,7 +252,7 @@ class NodeCore:
             "from": encode_cert(self.identity.cert),
             "issuer": encode_cert(issuer) if issuer else None,
             "to": peer_id,
-            "time": int(self.clock_s),
+            "hlc": self.hlc.value,
         }
         msg["sig"] = self.identity.sign(_summary_signing_bytes(msg))
         return msg
@@ -241,22 +260,32 @@ class NodeCore:
     def _summary_authentic(self, peer_id: str, msg: dict[str, object]) -> Cert | None:
         """Peer's cert chain is valid, names this peer, and signed a summary meant for us now."""
         cert = decode_cert(_bytes(msg["from"]))
-        if msg["issuer"] is not None:
-            self._on_cert(decode_cert(_bytes(msg["issuer"])))
-        sent_at = msg["time"]
-        if not isinstance(sent_at, int):
-            raise FormatError("summary time must be an integer")
-        fresh = abs(sent_at - self.clock_s) <= SUMMARY_MAX_SKEW_S
+        issuer = decode_cert(_bytes(msg["issuer"])) if msg["issuer"] is not None else None
+        peer_hlc = msg["hlc"]
+        if not isinstance(peer_hlc, int):
+            raise FormatError("summary hlc must be an integer")
+        peer_s = (peer_hlc >> 16) / 1000
+        if self._rtc_ok:
+            fresh, at = abs(peer_s - self.clock_s) <= SUMMARY_MAX_SKEW_S, self.clock_s
+        else:
+            # Our RTC is down, so our clock may be far behind: judge the peer's chain at the
+            # time it claims. It can only move us forward within a valid certificate's window.
+            fresh, at = True, max(peer_s, self.clock_s)
+        known = {**self.certs, **({issuer.cert_id: issuer} if issuer else {})}
+        root = self.identity.root_pubkey
         ok = (
             cert.subject == peer_id
             and msg["to"] == self.config.node_id
             and fresh
-            and self._valid(cert)
+            and valid(cert, known, root, int(at), self.revoked)
             and verify_p256(cert.pubkey, _summary_signing_bytes(msg), _bytes(msg["sig"]))
         )
         if not ok:
             return None
-        self._on_cert(cert)
+        self.hlc.merge(peer_hlc, None)
+        for c in (issuer, cert):
+            if c is not None:
+                self._on_cert(c)
         return cert
 
     def _renew(self, peer_id: str, peer_cert: Cert) -> list[Action]:
@@ -586,7 +615,7 @@ def _held(sid: bytes, has: set[bytes], bloom: Bloom) -> bool:
 
 def _summary_signing_bytes(msg: Mapping[str, object]) -> bytes:
     body = cbor2.dumps([msg["bloom"], msg["certs"], msg["docs"]])
-    return _SUMMARY_CONTEXT + cbor2.dumps([msg["from"], msg["to"], msg["time"], body])
+    return _SUMMARY_CONTEXT + cbor2.dumps([msg["from"], msg["to"], msg["hlc"], body])
 
 
 def _intact(shard: Shard) -> bool:

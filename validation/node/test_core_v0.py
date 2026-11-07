@@ -24,7 +24,8 @@ def test_inject_stores_every_shard_and_contact_sends_summary() -> None:
     actions = inject(clinic, shards)
     bid = shards[0].header.bundle_id
     assert actions[0] == Store(table="origin", key=bid, value=b"")
-    assert [a.key for a in actions[1:] if isinstance(a, Store)] == [s.shard_id for s in shards]
+    stored = [a.key for a in actions if isinstance(a, Store) and a.table == "shards"]
+    assert stored == [s.shard_id for s in shards]
     up = clinic.handle(ContactUp(mono=1, wall=None, peer_id="M", radio=W))
     [summary] = frames(up)
     bloom = Bloom.decode(summary["bloom"])  # type: ignore[arg-type]
