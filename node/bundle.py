@@ -179,3 +179,40 @@ def decode_ack(data: bytes) -> Ack:
         )
     except (TypeError, ValueError, cbor2.CBORDecodeError) as e:
         raise FormatError(str(e)) from e
+
+
+@dataclass(frozen=True)
+class Receipt:
+    """Custody receipt: the receiver durably holds these shards (spec §8.5).
+
+    Receipts a node issues form a hash chain (`prev`), so its ledger is tamper-evident.
+    """
+
+    receiver: str  # cert ID
+    sender: str  # node ID the shards came from
+    shard_ids: tuple[bytes, ...]
+    hlc: int
+    prev: bytes  # SHA-256 of the receiver's previous receipt, or 32 zero bytes
+    sig: bytes = b""
+
+    def signing_bytes(self) -> bytes:
+        body = [self.receiver, self.sender, list(self.shard_ids), self.hlc, self.prev]
+        return b"dtn-medical-mesh/v1/receipt" + cbor2.dumps(body)
+
+
+def encode_receipt(r: Receipt) -> bytes:
+    return cbor2.dumps([r.receiver, r.sender, list(r.shard_ids), r.hlc, r.prev, r.sig])
+
+
+def decode_receipt(data: bytes) -> Receipt:
+    try:
+        receiver, sender, ids, hlc, prev, sig = cbor2.loads(data)
+        r = Receipt(receiver, sender, tuple(ids), hlc, prev, sig)
+        types = [(receiver, str), (sender, str), (hlc, int), (prev, bytes), (sig, bytes)]
+        if not all(isinstance(v, t) for v, t in types) or not all(
+            isinstance(i, bytes) for i in r.shard_ids
+        ):
+            raise FormatError("bad receipt field types")
+        return r
+    except (TypeError, ValueError, cbor2.CBORDecodeError) as e:
+        raise FormatError(str(e)) from e

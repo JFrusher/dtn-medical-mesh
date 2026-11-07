@@ -4,6 +4,7 @@ handle(event) returns actions; it never touches clocks, radios, disk or randomne
 State is rebuilt from storage records on boot, so a power cut loses nothing committed.
 """
 
+import hashlib
 from collections import Counter, defaultdict, deque
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
@@ -16,11 +17,14 @@ from node.bundle import (
     Bundle,
     FormatError,
     Header,
+    Receipt,
     Shard,
     decode_ack,
+    decode_receipt,
     decode_shard,
     encode_ack,
     encode_bundle,
+    encode_receipt,
     encode_shard,
     shard_id,
 )
@@ -72,6 +76,10 @@ T_CERTS = "certs"
 T_DOCS = "docs"  # hub-signed documents: revocation lists and endpoint directories
 T_IDENTITY = "identity"  # renewed certificate, replacing the provisioned one
 T_META = "meta"  # node-wide values such as the last HLC
+T_LEDGER = "ledger"  # receipts this node issued, hash-chained, keyed by sequence number
+T_OUTBOX = "receipt_outbox"  # issued receipts not yet handed to their sender
+T_RECEIPTS_IN = "receipts_in"  # receipts others gave this node, for audit
+RECEIPT_BATCH_S = 0.5
 SUMMARY_MAX_SKEW_S = 3600
 EXACT_AFTER_S = 2.0  # send exact lists if the link outlives the first transfer burst (§8.3)
 _SUMMARY_CONTEXT = b"dtn-medical-mesh/v1/summary"
@@ -123,6 +131,15 @@ class NodeCore:
         self.revoked = self._revoked()
         self._verified_headers: set[bytes] = set()
         self._mono = 0.0  # monotonic time of the event being handled
+        ledger = records.get(T_LEDGER, {})
+        self.ledger_seq = max((int.from_bytes(k) for k in ledger), default=0)
+        last = ledger.get(self.ledger_seq.to_bytes(8))
+        self.ledger_head = hashlib.sha256(last).digest() if last else bytes(32)
+        self.outbox: dict[bytes, Receipt] = {
+            k: decode_receipt(v) for k, v in records.get(T_OUTBOX, {}).items()
+        }
+        self._unreceipted: dict[str, list[bytes]] = defaultdict(list)  # sender -> shard IDs
+        self.receipts_in = len(records.get(T_RECEIPTS_IN, {}))
         self._injected_at: dict[str, deque[float]] = defaultdict(deque)  # per injector cert
         self.shards: dict[bytes, Shard] = {
             k: decode_shard(v) for k, v in records.get(T_SHARDS, {}).items()
@@ -173,13 +190,15 @@ class NodeCore:
                     self.peer_sa,
                 ):
                     table.pop(event.peer_id, None)
-                return []
+                return self._issue_receipt(event.peer_id)  # anything owed goes to the outbox
             case FrameReceived(radio=RadioKind.WIFI):
                 return self._on_frame(event.peer_id, event.frame)
             case Inject():
                 return self._inject([decode_shard(s) for s in event.shards])
             case EndpointAck():
                 return self._endpoint_ack(event.bundle_id)
+            case Timer() if event.name.startswith("receipt:"):
+                return self._issue_receipt(event.name.removeprefix("receipt:"))
             case Timer() if event.name.startswith("exact:"):
                 peer_id = event.name.removeprefix("exact:")
                 if peer_id not in self.peer_bloom:
@@ -214,7 +233,14 @@ class NodeCore:
                     raise FormatError("summary docs must be a map")
                 self.peer_docs[peer_id] = {str(k): int(v) for k, v in docs.items()}
                 follow_up = SetTimer(name=f"exact:{peer_id}", at_mono=self._mono + EXACT_AFTER_S)
-                return [follow_up, *self._renew(peer_id, peer_cert), *self._offer(peer_id)]
+                owed = [
+                    self._send(peer_id, {"t": "receipt", "r": encode_receipt(r)})
+                    for r in self.outbox.values()
+                    if r.sender == peer_id
+                ]
+                return [follow_up, *owed, *self._renew(peer_id, peer_cert), *self._offer(peer_id)]
+            if kind == "receipt":
+                return self._on_receipt(decode_receipt(_bytes(msg["r"])))
             if kind == "exact":
                 if peer_id not in self.peer_bloom:
                     return []  # only from a peer whose summary we accepted
@@ -486,9 +512,67 @@ class NodeCore:
             return []
         evictions = self._make_room(shard, len(shard.data))
         if evictions is None:
-            self.dropped["full"] += 1  # refusing is safe: the sender keeps its copy
+            self.dropped["full"] += 1  # refusing is safe: no receipt, so the sender keeps it
             return []
-        return evictions + self._store_shard(shard) + self._after_new_shards(bid)
+        actions = evictions + self._store_shard(shard)
+        if source is not None:
+            if source not in self._unreceipted:
+                at = self._mono + RECEIPT_BATCH_S
+                actions.append(SetTimer(name=f"receipt:{source}", at_mono=at))
+            self._unreceipted[source].append(sid)
+        return actions + self._after_new_shards(bid)
+
+    # --- custody (§8.5) -----------------------------------------------------------
+
+    def _issue_receipt(self, sender: str) -> list[Action]:
+        """Sign one receipt for everything stored from `sender` since the last one."""
+        ids = self._unreceipted.pop(sender, [])
+        if not ids:
+            return []
+        r = Receipt(
+            self.identity.cert.cert_id, sender, tuple(ids), self.hlc.value, self.ledger_head
+        )
+        r = replace(r, sig=self.identity.sign(r.signing_bytes()))
+        encoded = encode_receipt(r)
+        self.ledger_seq += 1
+        self.ledger_head = hashlib.sha256(encoded).digest()
+        actions: list[Action] = [
+            Store(table=T_LEDGER, key=self.ledger_seq.to_bytes(8), value=encoded)
+        ]
+        if sender in self.peer_bloom:
+            return actions + [self._send(sender, {"t": "receipt", "r": encoded})]
+        self.outbox[self.ledger_head] = r
+        return actions + [Store(table=T_OUTBOX, key=self.ledger_head, value=encoded)]
+
+    def _on_receipt(self, r: Receipt) -> list[Action]:
+        if r.sender != self.config.node_id:
+            return []
+        cert = self.certs.get(r.receiver)
+        if not (
+            cert is not None
+            and self._valid(cert)
+            and verify_p256(cert.pubkey, r.signing_bytes(), r.sig)
+        ):
+            self.dropped["bad_receipt"] += 1
+            return []
+        encoded = encode_receipt(r)
+        self.receipts_in += 1
+        actions: list[Action] = [
+            Store(table=T_RECEIPTS_IN, key=hashlib.sha256(encoded).digest(), value=encoded)
+        ]
+        for sid in r.shard_ids:
+            shard = self.shards.get(sid)
+            if shard is not None and self._may_drop_after_custody(shard, cert):
+                actions.append(self._remove_shard(shard))
+        return actions
+
+    def _may_drop_after_custody(self, shard: Shard, custodian: Cert) -> bool:
+        """REQ-PROTO-05: origins and destination sites keep copies until the delivery ACK;
+        a relay lets go once a better-placed node holds the shard."""
+        h = shard.header
+        if h.bundle_id in self.origin or self.config.sa == h.dst_sa:
+            return False
+        return custodian.sa == h.dst_sa
 
     def _make_room(self, incoming: Shard, size: int) -> list[Action] | None:
         """Evict less important shards to fit `size` bytes, or return None and evict nothing.
