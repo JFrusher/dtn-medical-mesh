@@ -29,7 +29,7 @@ from node.hw.rtc import RtcError
 from node.pki import Identity
 from node.storage import STORAGE_KEY_SLOT, Storage
 from simulation.mobility import Mobility
-from simulation.radio_model import Link, RadioParams, transfer_s
+from simulation.radio_model import Link, RadioParams, channel, transfer_s
 from simulation.scheduler import Scheduler
 from simulation.virtual_hw import SeededEntropy, SoftwareSecureElement, VirtualRtc
 
@@ -153,9 +153,13 @@ class World:
             if not link.up or link.generation != generation:
                 self.lost_frames += 1  # the contact ended before this frame got through
                 return
+            frame = channel(link, action.frame, self.radio, self.scheduler.rng)
+            if frame is None:
+                self.lost_frames += 1
+                return
             self.dispatch(
                 self.nodes[action.peer_id],
-                partial(FrameReceived, peer_id=src, radio=action.radio, frame=action.frame),
+                partial(FrameReceived, peer_id=src, radio=action.radio, frame=frame),
             )
 
         self.scheduler.schedule(done, arrive)
