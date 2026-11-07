@@ -1,0 +1,59 @@
+"""Durable record store for one node (spec §9.2).
+
+NodeCore decides what to keep; this module only applies its Store/Delete actions and
+loads everything back on boot. Each action is its own transaction (REQ-DUR-03).
+"""
+
+import sqlite3
+from collections import defaultdict
+from collections.abc import Iterator
+from contextlib import contextmanager
+from pathlib import Path
+
+from node.events import Delete, Store
+
+_SCHEMA = """
+CREATE TABLE IF NOT EXISTS records (
+    tbl   TEXT NOT NULL,
+    key   BLOB NOT NULL,
+    value BLOB NOT NULL,
+    PRIMARY KEY (tbl, key)
+) WITHOUT ROWID
+"""
+
+
+class Storage:
+    def __init__(self, path: Path) -> None:
+        self._conn = sqlite3.connect(path, isolation_level=None)
+        self._conn.execute(_SCHEMA)
+
+    def apply(self, action: Store | Delete) -> None:
+        with self._transaction():
+            if isinstance(action, Store):
+                self._conn.execute(
+                    "INSERT OR REPLACE INTO records VALUES (?, ?, ?)",
+                    (action.table, action.key, action.value),
+                )
+            else:
+                self._conn.execute(
+                    "DELETE FROM records WHERE tbl = ? AND key = ?", (action.table, action.key)
+                )
+
+    def load(self) -> dict[str, dict[bytes, bytes]]:
+        tables: dict[str, dict[bytes, bytes]] = defaultdict(dict)
+        for tbl, key, value in self._conn.execute("SELECT tbl, key, value FROM records"):
+            tables[tbl][key] = value
+        return dict(tables)
+
+    def close(self) -> None:
+        self._conn.close()
+
+    @contextmanager
+    def _transaction(self) -> Iterator[None]:
+        self._conn.execute("BEGIN IMMEDIATE")
+        try:
+            yield
+        except BaseException:
+            self._conn.execute("ROLLBACK")
+            raise
+        self._conn.execute("COMMIT")
