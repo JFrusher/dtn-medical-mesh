@@ -53,7 +53,7 @@ Format: `REQ-<AREA>-<NN>`. Spec references are to `PROJECT_SPEC.md`.
 | REQ-PROTO-05 | The origin site node deletes a bundle only on delivery ACK; relays delete only on receipt from a better peer, delivery ACK or TTL expiry. | §8.5 |
 | REQ-PROTO-06 | Delivery ACKs are signed, spread with top priority, and purge the bundle at every node that sees them. | §8.7 |
 | REQ-PROTO-07 | Routing is epidemic until warm, then PRoPHET keyed on service area. | §8.6 |
-| REQ-PROTO-08 | Shards of one bundle are spread across different peers where alternatives exist. | §8.6 |
+| REQ-PROTO-08 | Retired: per-peer shard cap dropped (spec §8.6, §17). Kept so IDs stay stable. | §8.6 |
 | REQ-PROTO-09 | The LoRa channel carries only control messages that fit one frame, never shards. | §8.10 |
 | REQ-PROTO-10 | Traffic is bidirectional between endpoints. | §5.2 |
 

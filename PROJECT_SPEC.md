@@ -233,7 +233,7 @@ Each shard is written to storage in **one atomic transaction** before it counts 
 - **Cold start: epidemic.** Every eligible shard is offered to every peer, limited by storage and eviction policy.
 - **Warm: PRoPHET (RFC 6693 concepts)** with service areas as destinations. Each node keeps delivery predictabilities `P(node, SA)`, updated on encounter, aged over time, and made transitive across peers. A shard is forwarded to a peer whose `P` for the shard's `dst_sa` is higher than the holder's.
 - **Warm-up switch:** per SA, a node switches from epidemic to PRoPHET once it has seen at least *N* encounters relevant to that SA (default *N* = 20, tune in emulator).
-- **Erasure coding makes paths diverse naturally:** different shards of one bundle should go to different peers where possible, so no single mule carries *k* shards unless no alternative exists.
+- **No per-peer shard cap:** mules copy shards rather than move them, so any peer may carry a full set. Capping a peer below *k* would stop a single mule completing a delivery on its own and raise the NOT DELIVERED risk; path diversity comes naturally because different mules meet different peers.
 
 ### 8.7 Delivery ACK and purge
 - When the destination endpoint has rebuilt, verified and decrypted a bundle, it issues a **delivery ACK** `{bundle_id, hlc}` signed by the destination's site node. Clinical identity stays out of it.
@@ -443,6 +443,7 @@ Decisions made while turning the original design chat into this spec:
 | "100% COMPLIANT", "data can never be lost" | Design-aligned, no claims; **no *silent* loss** | Honest and testable. |
 | Stable destination IDs | **Service-area routing + trial decryption** (no recipient in header) | Privacy without breaking PRoPHET; pseudonyms couldn't be computed by senders. |
 | Fixed k=4, m=2 | **Parity scales with priority** | More paths for important data. |
+| Cap each peer below *k* shards of a bundle | **No cap** (P4.S12 dropped) | Mules copy rather than move shards; a cap would stop one mule completing a delivery and raise the NOT DELIVERED risk. |
 | Repo name `dtn-mesh-medical` | `dtn-medical-mesh` | Matches the actual repository. |
 
 ## 18. Open questions

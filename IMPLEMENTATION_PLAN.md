@@ -134,7 +134,7 @@ Goal: in the emulator, a clinic endpoint sends one text note and the hospital en
 | P4.S09 | Epidemic routing as an explicit strategy behind the `Router` interface. | `node/routing.py`, tests | `uv run pytest validation/node/test_routing.py` |
 | P4.S10 | PRoPHET (RFC 6693 equations: encounter, ageing, transitivity) keyed on SA. | `node/routing.py`, tests | same |
 | P4.S11 | Warm-up switch from epidemic to PRoPHET per SA after N encounters. | `node/routing.py`, tests | same |
-| P4.S12 | Shard path diversity: avoid giving one peer ≥ k shards of a bundle when alternatives exist. | `node/routing.py`, tests | same |
+| ~~P4.S12~~ | **Dropped:** a per-peer shard cap would stop a single mule completing a delivery (mules copy, not move, shards). See spec §8.6 and §17. | — | — |
 | P4.S13 | LoRa control channel: frame ≤ 200 B, carries ACKs, receipts, revocations and PRoPHET summaries only; a test that shard frames are rejected on LoRa. | `node/core.py`, tests | `uv run pytest validation/node/test_lora.py` |
 
 ## Phase 5 — Emulated real-world pressures
