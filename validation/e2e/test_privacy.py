@@ -33,7 +33,7 @@ def test_only_the_recipient_opens_and_headers_name_no_endpoint(tmp_path: Path) -
     f = tmp_path / "s.yaml"
     f.write_text(SCENARIO)
     result = run(load_scenario(str(f)), seed=1, data_dir=tmp_path / "run")
-    assert [m.content for m in result.endpoints["ward-b"].inbox] == [b"Lab result for ward B"]
+    assert [m.message.text for m in result.endpoints["ward-b"].inbox] == ["Lab result for ward B"]
     assert result.endpoints["ward-a"].inbox == []  # got the bundle, could not open it
     assert {n for n, node in result.world.nodes.items() if node.core.delivered} >= {
         "WARD_A",

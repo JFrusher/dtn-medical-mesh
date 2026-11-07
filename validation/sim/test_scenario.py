@@ -46,7 +46,7 @@ workload:
         (30, "photo #2"),
         (60, "photo #3"),
     ]
-    assert len(s.messages[0].content()) == 400000
+    assert len(s.messages[0].message().attachments[0].data) == 400000
     assert s.nodes[0].config.capacity_bytes == 2 * 1024 * 1024
 
 

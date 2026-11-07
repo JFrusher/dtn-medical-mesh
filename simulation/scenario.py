@@ -6,6 +6,7 @@ from typing import Any
 
 import yaml
 
+from endpoint.fhir import Attachment, Message
 from node.bundle import Priority
 from node.core import NodeConfig
 from node.pki import Role
@@ -44,11 +45,11 @@ class MessageSpec:
     recipient: str
     priority: Priority
     text: str
-    size_bytes: int = 0  # pad the content to this size (photos, media); 0 = just the text
+    size_bytes: int = 0  # attach a file of this size (photos, media); 0 = text only
 
-    def content(self) -> bytes:
-        body = self.text.encode()
-        return body + bytes(max(0, self.size_bytes - len(body)))
+    def message(self) -> Message:
+        files = (Attachment("attachment.bin", "application/octet-stream", bytes(self.size_bytes)),)
+        return Message(self.text, attachments=files if self.size_bytes else ())
 
 
 @dataclass(frozen=True)

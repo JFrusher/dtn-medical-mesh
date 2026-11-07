@@ -46,9 +46,9 @@ def test_mesh_delivers_everything_despite_insider_and_rogue(tmp_path: Path) -> N
     for name in ("clinic", "hospital"):
         e = result.endpoints[name]
         assert {e.status(b) for b in e.sent} == {Status.DELIVERED}, name
-    assert [m.content for m in result.endpoints["hospital"].inbox] == [
-        b"referral one",
-        b"referral two",
+    assert [m.message.text for m in result.endpoints["hospital"].inbox] == [
+        "referral one",
+        "referral two",
     ]
     honest = Counter[str]()
     for n in ("CLINIC", "HOSPITAL", "AMBULANCE"):

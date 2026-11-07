@@ -2,6 +2,7 @@ from pathlib import Path
 
 import pytest
 
+from endpoint.fhir import Message
 from endpoint.state import Status
 from node.bundle import Priority
 from simulation.runner import run
@@ -13,10 +14,8 @@ def test_referral_reaches_hospital_intact(tmp_path: Path) -> None:
     scenario = load_scenario("skeleton")
     result = run(scenario, seed=1, data_dir=tmp_path)
     inbox = result.endpoints["hospital"].inbox
-    assert [m.content.decode() for m in inbox] == [scenario.messages[0].text]
-    assert [m.content.decode() for m in result.endpoints["clinic"].inbox] == [
-        scenario.messages[1].text
-    ]
+    assert [m.message.text for m in inbox] == [scenario.messages[0].text]
+    assert [m.message.text for m in result.endpoints["clinic"].inbox] == [scenario.messages[1].text]
     assert inbox[0].sender == "clinic"  # inner signature resolved through the signed directory
 
 
@@ -49,7 +48,9 @@ def test_sender_not_in_directory_is_shown_unverified(tmp_path: Path) -> None:
     world = result.world
     world.scheduler.schedule(
         world.scheduler.now,
-        lambda: result.endpoints["clinic"].send("hospital", b"again", Priority.ROUTINE),
+        lambda: result.endpoints["clinic"].send_message(
+            "hospital", Message("again"), Priority.ROUTINE
+        ),
     )
     world.scheduler.run_until(world.scheduler.now + 7200)
-    assert [(m.sender, m.content) for m in hospital.inbox] == [(None, b"again")]
+    assert [(m.sender, m.message.text) for m in hospital.inbox] == [(None, "again")]

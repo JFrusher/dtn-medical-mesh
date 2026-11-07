@@ -1,10 +1,13 @@
 """Virtual endpoints (clinic/hospital laptops) attached to site nodes in the simulation."""
 
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from functools import partial
 
+from endpoint import fhir
 from endpoint.crypto import CryptoError, EndpointKeys
 from endpoint.directory import DirectoryEntry, verified_entries
+from endpoint.fhir import Message
 from endpoint.pipeline import build_shards, open_delivered
 from endpoint.state import Outgoing, Status
 from node.bundle import Priority, decode_bundle, encode_shard
@@ -16,9 +19,13 @@ from simulation.world import SimNode, World
 @dataclass(frozen=True)
 class Received:
     sender: str | None  # directory name of the signing endpoint; None if not in the directory
-    content: bytes
+    content: bytes  # FHIR-lite (endpoint.fhir), as signed by the sender
     bundle_id: bytes
     at_s: float  # simulation time it was opened
+
+    @property
+    def message(self) -> Message:
+        return fhir.decode(self.content)
 
 
 @dataclass
@@ -43,6 +50,10 @@ class VirtualEndpoint:
         self.site.on_directory = self.update_directory
         self.site.on_boot = self._flush_pending
         self.site.on_delivered = self._on_delivered
+
+    def send_message(self, to: str, message: Message, priority: Priority) -> bytes:
+        sent_at = datetime.fromtimestamp(self._now_ms() / 1000, UTC).isoformat()
+        return self.send(to, fhir.encode(message, sent_at), priority)
 
     def send(self, to: str, content: bytes, priority: Priority) -> bytes:
         entry = self.directory[to]
