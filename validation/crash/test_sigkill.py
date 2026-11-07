@@ -18,6 +18,7 @@ from node.events import Store
 from node.storage import Storage
 
 KILLS = 500
+KEY = b"k" * 32
 
 
 def value_for(key: bytes, size: int) -> bytes:
@@ -27,7 +28,7 @@ def value_for(key: bytes, size: int) -> bytes:
 
 def writer(db: Path, start: int, report_fd: int) -> None:
     rng = random.Random(start)
-    storage = Storage(db)
+    storage = Storage(db, KEY)
     i = start
     while True:
         key = i.to_bytes(4)
@@ -61,7 +62,7 @@ def test_store_survives_random_sigkills(tmp_path: Path) -> None:
         os.close(read_fd)
         committed |= {reported[i : i + 4] for i in range(0, len(reported) - len(reported) % 4, 4)}
 
-        storage = Storage(db)
+        storage = Storage(db, KEY)
         assert storage._conn.execute("PRAGMA integrity_check").fetchone() == ("ok",)
         rows = storage.load().get("shards", {})
         storage.close()

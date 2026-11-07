@@ -25,11 +25,11 @@ from node.events import (
 )
 from node.hw.radio import RadioKind
 from node.hw.rtc import RtcError
-from node.storage import Storage
+from node.storage import STORAGE_KEY_SLOT, Storage
 from simulation.mobility import Mobility
 from simulation.radio_model import RadioParams
 from simulation.scheduler import Scheduler
-from simulation.virtual_hw import VirtualRtc
+from simulation.virtual_hw import SeededEntropy, SoftwareSecureElement, VirtualRtc
 
 LogFn = Callable[[float, str], None]
 
@@ -40,6 +40,7 @@ class SimNode:
     mobility: Mobility
     storage: Storage
     rtc: VirtualRtc
+    se: SoftwareSecureElement
     core: NodeCore = field(init=False)
     boot_at: float = 0.0
     on_deliver: Callable[[bytes], None] | None = None
@@ -74,8 +75,9 @@ class World:
     def add_node(self, config: NodeConfig, mobility: Mobility) -> SimNode:
         if config.node_id in self.nodes:
             raise ValueError(f"duplicate node id {config.node_id}")
-        storage = Storage(self.data_dir / f"{config.node_id}.db")
-        node = SimNode(config, mobility, storage, VirtualRtc(self.scheduler))
+        se = SoftwareSecureElement(SeededEntropy(f"{self.scheduler.seed}:{config.node_id}"))
+        storage = Storage(self.data_dir / f"{config.node_id}.db", se.read_slot(STORAGE_KEY_SLOT))
+        node = SimNode(config, mobility, storage, VirtualRtc(self.scheduler), se)
         self.nodes[config.node_id] = node
         return node
 

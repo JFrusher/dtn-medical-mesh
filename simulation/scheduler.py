@@ -29,6 +29,7 @@ class Handle:
 class Scheduler:
     def __init__(self, seed: int) -> None:
         self.now = 0.0
+        self.seed = seed
         self.rng = random.Random(seed)
         self._queue: list[_Entry] = []
         self._seq = 0
