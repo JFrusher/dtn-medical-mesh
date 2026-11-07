@@ -14,7 +14,21 @@ from node.bundle import (
 
 def sample() -> Bundle:
     payload = b"\x00ciphertext"
-    h = Header(make_bundle_id(payload, 7), "SA_CLINIC", "SA_HOSP", Priority.URGENT, 7, 3600)
+    root = b"r" * 32
+    h = Header(
+        make_bundle_id(root, 7),
+        "SA_CLINIC",
+        "SA_HOSP",
+        Priority.URGENT,
+        7,
+        3600,
+        size_bucket=4096,
+        k=4,
+        m=4,
+        merkle_root=root,
+        injector="CLINIC_01",
+        sig=b"s" * 64,
+    )
     return Bundle(h, payload)
 
 
@@ -30,6 +44,13 @@ def test_round_trip() -> None:
 def test_rejects_malformed(bad: bytes) -> None:
     with pytest.raises(FormatError):
         decode_bundle(bad)
+
+
+def test_rejects_forged_bundle_id() -> None:
+    obj = cbor2.loads(encode_bundle(sample()))
+    obj["h"]["bundle_id"] = b"x" * 32
+    with pytest.raises(FormatError):
+        decode_bundle(cbor2.dumps(obj))
 
 
 def test_rejects_wrong_field_type() -> None:

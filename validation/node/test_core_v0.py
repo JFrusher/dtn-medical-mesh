@@ -1,3 +1,5 @@
+import hashlib
+
 import cbor2
 
 from node.bundle import Bundle, Header, Priority, encode_bundle, make_bundle_id
@@ -9,7 +11,10 @@ W = RadioKind.WIFI
 
 
 def bundle(payload: bytes, dst: str = "SA_H", prio: Priority = Priority.ROUTINE) -> Bundle:
-    h = Header(make_bundle_id(payload, 1), "SA_C", dst, prio, 1, 3600)
+    root = hashlib.sha256(payload).digest()
+    h = Header(
+        make_bundle_id(root, 1), "SA_C", dst, prio, 1, 3600, len(payload), 1, 0, root, "C", b""
+    )
     return Bundle(h, payload)
 
 

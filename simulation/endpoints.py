@@ -1,5 +1,6 @@
 """Virtual endpoints (clinic/hospital laptops) attached to site nodes in the simulation."""
 
+import hashlib
 from dataclasses import dataclass, field
 from enum import Enum
 from functools import partial
@@ -53,8 +54,20 @@ class VirtualEndpoint:
         created = int(self.world.scheduler.now * 1000)
         site_sa = self.site.config.sa
         assert site_sa is not None
+        root = hashlib.sha256(payload).digest()  # shortcut: whole payload until P2.S06 shards it
         header = Header(
-            make_bundle_id(payload, created), site_sa, entry.sa, priority, created, lifetime_s
+            make_bundle_id(root, created),
+            site_sa,
+            entry.sa,
+            priority,
+            created,
+            lifetime_s,
+            len(payload),
+            1,
+            0,
+            root,
+            self.site.config.node_id,
+            b"",
         )
         encoded = encode_bundle(Bundle(header, payload))
         self.world.dispatch(self.site, partial(Inject, bundle=encoded))
