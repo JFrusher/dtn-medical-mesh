@@ -51,3 +51,24 @@ def test_malformed_frames_are_dropped_and_counted() -> None:
     for junk in (b"\xff", cbor2.dumps({"t": "nope"}), cbor2.dumps({"t": "bundle", "b": b"x"})):
         assert node.handle(FrameReceived(mono=0, wall=None, peer_id="P", radio=W, frame=junk)) == []
     assert node.dropped["malformed"] == 3
+
+
+def test_new_bundle_goes_to_already_connected_peer() -> None:
+    clinic = NodeCore(NodeConfig("C", Role.SITE, "SA_C"), {})
+    clinic.handle(ContactUp(mono=0, wall=None, peer_id="M", radio=W))
+    empty = cbor2.dumps({"t": "summary", "ids": []})
+    clinic.handle(FrameReceived(mono=0, wall=None, peer_id="M", radio=W, frame=empty))
+    b = bundle(b"late")
+    sent = frames(clinic.handle(Inject(mono=5, wall=None, bundle=encode_bundle(b))))
+    assert sent == [{"t": "bundle", "b": encode_bundle(b)}]
+    assert clinic.handle(Inject(mono=6, wall=None, bundle=encode_bundle(b))) == []
+
+
+def test_bundle_is_not_echoed_back_to_its_sender() -> None:
+    mule = NodeCore(NodeConfig("M", Role.MULE, None), {})
+    mule.handle(ContactUp(mono=0, wall=None, peer_id="C", radio=W))
+    empty = cbor2.dumps({"t": "summary", "ids": []})
+    mule.handle(FrameReceived(mono=0, wall=None, peer_id="C", radio=W, frame=empty))
+    frame = cbor2.dumps({"t": "bundle", "b": encode_bundle(bundle(b"x"))})
+    out = mule.handle(FrameReceived(mono=1, wall=None, peer_id="C", radio=W, frame=frame))
+    assert frames(out) == []

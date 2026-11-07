@@ -13,6 +13,7 @@ import cbor2
 from node.bundle import Bundle, FormatError, decode_bundle, encode_bundle
 from node.events import (
     Action,
+    ContactDown,
     ContactUp,
     Deliver,
     Event,
@@ -51,15 +52,19 @@ class NodeCore:
             k: decode_bundle(v) for k, v in records.get(T_BUNDLES, {}).items()
         }
         self.dropped = Counter[str]()
+        self.peer_has: dict[str, set[bytes]] = {}  # connected peers whose summary we have
 
     def handle(self, event: Event) -> list[Action]:
         match event:
             case ContactUp(radio=RadioKind.WIFI):
                 return [self._send(event.peer_id, {"t": "summary", "ids": sorted(self.bundles)})]
+            case ContactDown(radio=RadioKind.WIFI):
+                self.peer_has.pop(event.peer_id, None)
+                return []
             case FrameReceived(radio=RadioKind.WIFI):
                 return self._on_frame(event.peer_id, event.frame)
             case Inject():
-                return self._accept(decode_bundle(event.bundle))
+                return self._accept(decode_bundle(event.bundle), source=None)
             case _:
                 return []
 
@@ -68,21 +73,26 @@ class NodeCore:
             msg = cbor2.loads(frame)
             kind = msg["t"]
             if kind == "summary":
-                return self._offer(peer_id, set(msg["ids"]))
+                self.peer_has[peer_id] = set(msg["ids"])
+                return self._offer(peer_id)
             if kind == "bundle":
-                return self._accept(decode_bundle(msg["b"]))
+                return self._accept(decode_bundle(msg["b"]), source=peer_id)
             raise FormatError(f"unknown frame type {kind!r}")
         except (FormatError, KeyError, TypeError, cbor2.CBORDecodeError):
             self.dropped["malformed"] += 1
             return []
 
-    def _offer(self, peer_id: str, peer_has: set[bytes]) -> list[Action]:
-        missing = [b for i, b in self.bundles.items() if i not in peer_has]
+    def _offer(self, peer_id: str) -> list[Action]:
+        has = self.peer_has[peer_id]
+        missing = [b for i, b in self.bundles.items() if i not in has]
         missing.sort(key=lambda b: (b.header.priority, b.header.created))
+        has.update(b.header.bundle_id for b in missing)
         return [self._send(peer_id, {"t": "bundle", "b": encode_bundle(b)}) for b in missing]
 
-    def _accept(self, bundle: Bundle) -> list[Action]:
+    def _accept(self, bundle: Bundle, source: str | None) -> list[Action]:
         bid = bundle.header.bundle_id
+        if source in self.peer_has:
+            self.peer_has[source].add(bid)
         if bid in self.bundles:
             return []
         self.bundles[bid] = bundle
@@ -90,6 +100,8 @@ class NodeCore:
         actions: list[Action] = [Store(table=T_BUNDLES, key=bid, value=encoded)]
         if bundle.header.dst_sa == self.config.sa:
             actions.append(Deliver(bundle=encoded))
+        for peer in sorted(self.peer_has):  # contacts already open get it straight away
+            actions += self._offer(peer)
         return actions
 
     def _send(self, peer_id: str, msg: dict[str, object]) -> SendFrame:
