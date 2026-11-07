@@ -59,3 +59,13 @@ def test_core_persists_hlc_and_relearns_time_from_peer_when_rtc_dead(tmp_path: P
     msg = summary_from("P", "M2")
     frame(dead_rtc, "P", msg)  # wall=None: our RTC is down, so the peer's time is adopted
     assert dead_rtc.clock_s >= NOW + 60
+
+
+@pytest.mark.req("REQ-TIME-01", "REQ-SEC-06")
+def test_rtc_failure_keeps_time_moving_on_the_monotonic_clock() -> None:
+    """Evidence from disaster-response: a site whose RTC died fell an hour behind between
+    contacts, so peers rejected its summaries as stale and stopped offering it data."""
+    site = make_node("C", Role.SITE, "SA_C")
+    site.handle(ContactUp(mono=100.0, wall=float(NOW + 100), peer_id="X", radio=RadioKind.WIFI))
+    site.handle(ContactUp(mono=100.0 + 3 * 3600, wall=None, peer_id="Y", radio=RadioKind.WIFI))
+    assert site.clock_s == pytest.approx(NOW + 100 + 3 * 3600, abs=1)

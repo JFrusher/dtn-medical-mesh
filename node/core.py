@@ -127,6 +127,9 @@ class NodeCore:
         stored_hlc = meta.get(b"hlc")
         self.hlc = Hlc(int.from_bytes(stored_hlc) if stored_hlc else 0)
         self._rtc_ok = False  # whether the event being handled carried an RTC reading
+        # (wall s, mono s) of the last trusted time; without an RTC, physical time is
+        # extrapolated from it with the monotonic clock so the HLC keeps pace with reality.
+        self._anchor: tuple[float, float] | None = None
         self.certs: dict[str, Cert] = {
             k.decode(): decode_cert(v) for k, v in records.get(T_CERTS, {}).items()
         }
@@ -177,7 +180,9 @@ class NodeCore:
     def handle(self, event: Event) -> list[Action]:
         self._mono = event.mono
         self._rtc_ok = event.wall is not None
-        self.hlc.tick(int(event.wall * 1000) if event.wall is not None else None)
+        if event.wall is not None:
+            self._anchor = (event.wall, event.mono)
+        self.hlc.tick(self._physical_ms(event.mono))
         actions = self._handle(event)
         if self._mono - self._last_sweep >= SWEEP_EVERY_S:
             self._last_sweep = self._mono
@@ -187,6 +192,12 @@ class NodeCore:
         if any(isinstance(a, Store | Delete) for a in actions):
             actions.append(Store(table=T_META, key=b"hlc", value=self.hlc.value.to_bytes(16)))
         return actions
+
+    def _physical_ms(self, mono: float) -> int | None:
+        if self._anchor is None:
+            return None
+        wall, at_mono = self._anchor
+        return int((wall + mono - at_mono) * 1000)
 
     @property
     def clock_s(self) -> float:
@@ -362,7 +373,9 @@ class NodeCore:
         )
         if not ok:
             return None
-        self.hlc.merge(peer_hlc, None)
+        self.hlc.merge(peer_hlc, self._physical_ms(self._mono))
+        if not self._rtc_ok:
+            self._anchor = (self.clock_s, self._mono)  # learned time: carry it forward
         for c in (issuer, cert):
             if c is not None:
                 self._on_cert(c)
