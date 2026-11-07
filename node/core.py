@@ -27,7 +27,7 @@ from node.events import (
     Store,
 )
 from node.hw.radio import RadioKind
-from node.pki import Role
+from node.pki import Identity, Role
 
 T_SHARDS = "shards"
 T_ACKS = "acks"
@@ -52,8 +52,14 @@ class NodeConfig:
 
 
 class NodeCore:
-    def __init__(self, config: NodeConfig, records: dict[str, dict[bytes, bytes]]) -> None:
+    def __init__(
+        self, config: NodeConfig, records: dict[str, dict[bytes, bytes]], identity: Identity
+    ) -> None:
+        cert = identity.cert
+        if (cert.subject, cert.role, cert.sa) != (config.node_id, config.role, config.sa):
+            raise ValueError(f"{config.node_id}: certificate does not match the node config")
         self.config = config
+        self.identity = identity
         self.shards: dict[bytes, Shard] = {
             k: decode_shard(v) for k, v in records.get(T_SHARDS, {}).items()
         }

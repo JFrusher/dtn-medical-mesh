@@ -99,3 +99,13 @@ def valid(
     return valid(issuer, known, root_pubkey, now, revoked) and verify_p256(
         issuer.pubkey, cert.signing_bytes(), cert.sig
     )
+
+
+@dataclass(frozen=True)
+class Identity:
+    """What a node is provisioned with: its certificate chain, the root key and its signer."""
+
+    cert: Cert
+    issuer: Cert | None  # the issuing hub's cert; None for hubs (issued by the root)
+    root_pubkey: bytes
+    sign: Signer

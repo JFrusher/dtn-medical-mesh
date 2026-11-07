@@ -1,16 +1,16 @@
 import pytest
 
 from node.bundle import Priority, Shard
-from node.core import NodeConfig, NodeCore, StorageFull
+from node.core import NodeCore, StorageFull
 from node.events import Delete
 from node.pki import Role
-from validation.node.helpers import frame, inject, make_shards, records, shard_msg
+from validation.node.helpers import frame, inject, make_node, make_shards, records, shard_msg
 
 SHARD = 1024  # make_shards(size=4096) with k=4 gives 1024-byte routine shards
 
 
 def mule(capacity: int, *held: list[Shard]) -> NodeCore:
-    return NodeCore(NodeConfig("M", Role.MULE, None, capacity), records(*held))
+    return make_node("M", Role.MULE, None, records(*held), capacity)
 
 
 @pytest.mark.req("REQ-DUR-05")
@@ -43,7 +43,7 @@ def test_critical_never_evicted_for_lower_and_refusal_evicts_nothing() -> None:
 
 @pytest.mark.req("REQ-DUR-05", "REQ-PROTO-05")
 def test_origin_copies_are_never_evicted_and_full_origin_fails_loudly() -> None:
-    site = NodeCore(NodeConfig("C", Role.SITE, "SA_C", 6 * SHARD), {})
+    site = make_node("C", Role.SITE, "SA_C", capacity=6 * SHARD)
     own = make_shards(b"own")  # 6 routine shards fill the node
     inject(site, own)
     critical = make_shards(b"c", priority=Priority.CRITICAL)

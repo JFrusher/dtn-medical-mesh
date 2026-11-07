@@ -5,6 +5,7 @@ import pytest
 from node.core import NodeConfig
 from node.pki import Role
 from simulation.mobility import Route, Static
+from simulation.provision import provision
 from simulation.scheduler import Scheduler
 from simulation.world import World
 
@@ -26,6 +27,7 @@ def test_mule_makes_and_breaks_contacts(tmp_path: Path) -> None:
     w.add_node(NodeConfig("CLINIC", Role.SITE, "SA_C"), Static((0, 0)))
     w.add_node(NodeConfig("HOSP", Role.HUB, "SA_H"), Static((1000, 0)))
     w.add_node(NodeConfig("MULE", Role.MULE, None), Route(((0, 0), (1000, 0)), speed=10))
+    provision(list(w.nodes.values()), seed=1)
     w.start()
     s.run_until(105)
     assert log == ["0 CONTACT CLINIC <-> MULE", "90 CONTACT HOSP <-> MULE"]

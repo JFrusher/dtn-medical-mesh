@@ -25,6 +25,7 @@ from node.events import (
 )
 from node.hw.radio import RadioKind
 from node.hw.rtc import RtcError
+from node.pki import Identity
 from node.storage import STORAGE_KEY_SLOT, Storage
 from simulation.mobility import Mobility
 from simulation.radio_model import RadioParams
@@ -41,13 +42,18 @@ class SimNode:
     storage: Storage
     rtc: VirtualRtc
     se: SoftwareSecureElement
+    identity: Identity | None = None  # set by provisioning
     core: NodeCore = field(init=False)
     boot_at: float = 0.0
     on_deliver: Callable[[bytes], None] | None = None
     on_delivered: Callable[[bytes], None] | None = None
 
-    def __post_init__(self) -> None:
-        self.core = NodeCore(self.config, self.storage.load())
+    def boot(self, now: float) -> None:
+        """Start the node from what is on disk (also used after a power cut)."""
+        if self.identity is None:
+            raise RuntimeError(f"{self.id} was never provisioned")
+        self.core = NodeCore(self.config, self.storage.load(), self.identity)
+        self.boot_at = now
 
     @property
     def id(self) -> str:
@@ -82,6 +88,8 @@ class World:
         return node
 
     def start(self) -> None:
+        for node in self.nodes.values():
+            node.boot(self.scheduler.now)
         self.scheduler.after(0, self._tick)
 
     def position(self, node_id: str) -> tuple[float, float]:

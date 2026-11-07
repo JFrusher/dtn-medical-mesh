@@ -1,7 +1,6 @@
 import cbor2
 
 from node.bundle import Priority, decode_bundle, encode_shard
-from node.core import NodeConfig, NodeCore
 from node.events import ContactUp, Deliver, FrameReceived, Store
 from node.pki import Role
 from validation.node.helpers import (
@@ -10,6 +9,7 @@ from validation.node.helpers import (
     frame,
     frames,
     inject,
+    make_node,
     make_shards,
     records,
     shard_msg,
@@ -17,7 +17,7 @@ from validation.node.helpers import (
 
 
 def test_inject_stores_every_shard_and_contact_sends_summary() -> None:
-    clinic = NodeCore(NodeConfig("C", Role.SITE, "SA_C"), {})
+    clinic = make_node("C", Role.SITE, "SA_C")
     shards = make_shards(b"x")
     actions = inject(clinic, shards)
     bid = shards[0].header.bundle_id
@@ -29,7 +29,7 @@ def test_inject_stores_every_shard_and_contact_sends_summary() -> None:
 
 def test_offers_only_missing_shards_most_urgent_first() -> None:
     routine, critical = make_shards(b"a"), make_shards(b"b", priority=Priority.CRITICAL)
-    node = NodeCore(NodeConfig("M", Role.MULE, None), records(routine, critical))
+    node = make_node("M", Role.MULE, None, records(routine, critical))
     have = [s.shard_id for s in routine[:3]]
     sent = frames(frame(node, "P", {"t": "summary", "ids": have, "acks": []}))
     expected = critical + routine[3:]
@@ -38,7 +38,7 @@ def test_offers_only_missing_shards_most_urgent_first() -> None:
 
 def test_destination_rebuilds_from_any_k_and_delivers_once() -> None:
     shards = make_shards(b"x")  # k=4, m=2
-    hosp = NodeCore(NodeConfig("H", Role.HUB, "SA_H"), {})
+    hosp = make_node("H", Role.HUB, "SA_H")
     delivered = []
     for s in [shards[5], shards[1], shards[4], shards[2], shards[0]]:
         delivered += [a for a in frame(hosp, "M", shard_msg(s)) if isinstance(a, Deliver)]
@@ -47,13 +47,13 @@ def test_destination_rebuilds_from_any_k_and_delivers_once() -> None:
 
 
 def test_relay_never_delivers() -> None:
-    mule = NodeCore(NodeConfig("M", Role.MULE, None), {})
+    mule = make_node("M", Role.MULE, None)
     for s in make_shards(b"x"):
         assert not [a for a in frame(mule, "C", shard_msg(s)) if isinstance(a, Deliver)]
 
 
 def test_malformed_frames_are_dropped_and_counted() -> None:
-    node = NodeCore(NodeConfig("M", Role.MULE, None), {})
+    node = make_node("M", Role.MULE, None)
     junk = [b"\xff", cbor2.dumps({"t": "nope"}), cbor2.dumps({"t": "shard", "s": b"x"})]
     for j in junk:
         assert node.handle(FrameReceived(mono=0, wall=None, peer_id="P", radio=W, frame=j)) == []
@@ -61,7 +61,7 @@ def test_malformed_frames_are_dropped_and_counted() -> None:
 
 
 def test_new_shards_go_to_already_connected_peer() -> None:
-    clinic = NodeCore(NodeConfig("C", Role.SITE, "SA_C"), {})
+    clinic = make_node("C", Role.SITE, "SA_C")
     connect(clinic, "M")
     shards = make_shards(b"late")
     assert len(frames(inject(clinic, shards))) == len(shards)
@@ -69,6 +69,6 @@ def test_new_shards_go_to_already_connected_peer() -> None:
 
 
 def test_shard_is_not_echoed_back_to_its_sender() -> None:
-    mule = NodeCore(NodeConfig("M", Role.MULE, None), {})
+    mule = make_node("M", Role.MULE, None)
     connect(mule, "C")
     assert frames(frame(mule, "C", shard_msg(make_shards(b"x")[0]))) == []

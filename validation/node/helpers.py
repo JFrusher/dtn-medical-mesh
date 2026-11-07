@@ -1,15 +1,19 @@
 """Build valid shards and frames for node tests without any endpoint crypto."""
 
 import hashlib
+from collections.abc import Sequence
+from functools import cache
 
 import cbor2
 
 from node import erasure, merkle
 from node.bundle import Header, Priority, Shard, encode_shard, make_bundle_id
 from node.config import PRIORITY_CLASSES
-from node.core import NodeCore
+from node.core import NodeConfig, NodeCore
 from node.events import Action, ContactUp, FrameReceived, Inject, SendFrame
 from node.hw.radio import RadioKind
+from node.pki import ROOT, Identity, Role, issue
+from simulation.virtual_hw import SIM_EPOCH, SeededEntropy, SoftwareSecureElement
 
 W = RadioKind.WIFI
 
@@ -56,9 +60,11 @@ def frame(node: NodeCore, peer: str, msg: dict[str, object], mono: float = 0) ->
     )
 
 
-def connect(node: NodeCore, peer: str, ids: list[bytes] = [], acks: list[bytes] = []) -> None:  # noqa: B006
+def connect(
+    node: NodeCore, peer: str, ids: Sequence[bytes] = (), acks: Sequence[bytes] = ()
+) -> None:
     node.handle(ContactUp(mono=0, wall=None, peer_id=peer, radio=W))
-    frame(node, peer, {"t": "summary", "ids": ids, "acks": acks})
+    frame(node, peer, {"t": "summary", "ids": list(ids), "acks": list(acks)})
 
 
 def shard_msg(s: Shard) -> dict[str, object]:
@@ -68,3 +74,35 @@ def shard_msg(s: Shard) -> dict[str, object]:
 def inject(node: NodeCore, shards: list[Shard]) -> list[Action]:
     encoded = tuple(encode_shard(s) for s in shards)
     return node.handle(Inject(mono=0, wall=None, shards=encoded))
+
+
+# --- provisioned test identities -------------------------------------------------
+
+NOW = int(SIM_EPOCH)
+TEST_ROOT = SoftwareSecureElement(SeededEntropy("test-root"))
+TEST_HUB_SE = SoftwareSecureElement(SeededEntropy("test-hub"))
+TEST_HUB = issue(TEST_ROOT.sign, ROOT, "H", Role.HUB, "SA_H", TEST_HUB_SE.public_key(), NOW)
+
+
+@cache
+def node_se(node_id: str) -> SoftwareSecureElement:
+    return TEST_HUB_SE if node_id == "H" else SoftwareSecureElement(SeededEntropy(node_id))
+
+
+def identity(node_id: str, role: Role, sa: str | None) -> Identity:
+    if node_id == "H":
+        return Identity(TEST_HUB, None, TEST_ROOT.public_key(), TEST_HUB_SE.sign)
+    se = node_se(node_id)
+    cert = issue(TEST_HUB_SE.sign, TEST_HUB.cert_id, node_id, role, sa, se.public_key(), NOW)
+    return Identity(cert, TEST_HUB, TEST_ROOT.public_key(), se.sign)
+
+
+def make_node(
+    node_id: str,
+    role: Role,
+    sa: str | None = None,
+    held: dict[str, dict[bytes, bytes]] | None = None,
+    capacity: int = 32 * 1024**3,
+) -> NodeCore:
+    config = NodeConfig(node_id, role, sa, capacity)
+    return NodeCore(config, held or {}, identity(node_id, role, sa))

@@ -8,6 +8,7 @@ from functools import partial
 from pathlib import Path
 
 from simulation.endpoints import DirectoryEntry, VirtualEndpoint
+from simulation.provision import provision
 from simulation.scenario import MessageSpec, Scenario, load_scenario
 from simulation.scheduler import Scheduler
 from simulation.virtual_hw import SeededEntropy
@@ -35,6 +36,8 @@ def run(scenario: Scenario, seed: int, data_dir: Path, echo: bool = False) -> Ru
     world = World(scheduler, data_dir, scenario.radio, scenario.tick_s, log)
     for spec in scenario.nodes:
         world.add_node(spec.config, spec.mobility)
+    provision(list(world.nodes.values()), seed)
+    world.start()
     directory: dict[str, DirectoryEntry] = {}
     endpoints = {
         e.name: VirtualEndpoint(
@@ -49,7 +52,6 @@ def run(scenario: Scenario, seed: int, data_dir: Path, echo: bool = False) -> Ru
 
     for m in scenario.messages:
         scheduler.schedule(m.at_s, partial(send, m))
-    world.start()
     scheduler.run_until(scenario.duration_s)
     return RunResult(scenario, world, endpoints, lines)
 
