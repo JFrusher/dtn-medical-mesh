@@ -48,3 +48,11 @@ workload:
     ]
     assert len(s.messages[0].content()) == 400000
     assert s.nodes[0].config.capacity_bytes == 2 * 1024 * 1024
+
+
+@pytest.mark.parametrize(
+    "name", ["skeleton", "rural-clinics", "disaster-response", "island-medevac", "stress"]
+)
+def test_shipped_scenarios_load(name: str) -> None:
+    s = load_scenario(name)
+    assert s.nodes and s.duration_s > 0

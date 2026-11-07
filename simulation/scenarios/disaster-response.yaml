@@ -1,0 +1,42 @@
+# Earthquake response, 24 hours: a field hospital, three temporary aid posts, rescue teams on
+# foot and a 4x4 as ad-hoc mules, relays on generators and batteries that fail. Clocks reset.
+name: disaster-response
+duration_s: 86400
+tick_s: 2
+radio: {wifi_range_m: 80, p_good_to_bad: 0.02, p_bad_to_good: 0.3, loss_in_bad: 0.4}
+nodes:
+  - {id: FIELD_HOSPITAL, role: hub, sa: SA_FIELD_HOSPITAL, at: [0, 0]}
+  - {id: POST_NORTH, role: site, sa: SA_POSTS, at: [0, 4000]}
+  - {id: POST_EAST, role: site, sa: SA_POSTS, at: [3500, 1500]}
+  - {id: POST_SOUTH, role: site, sa: SA_POSTS, at: [500, -3800]}
+  - id: TEAM_A
+    role: mule
+    route: {waypoints: [[0, 0], [0, 4000], [3500, 1500]], speed: 1.4, dwell_s: 1800}
+  - id: TEAM_B
+    role: mule
+    route: {waypoints: [[0, 0], [500, -3800]], speed: 1.2, dwell_s: 2400, start_s: 900}
+  - id: JEEP
+    role: mule
+    route: {waypoints: [[0, 0], [3500, 1500], [0, 4000], [500, -3800]], speed: 8, dwell_s: 600}
+    power: {kind: vehicle, capacity_wh: 10, load_w: 2}
+  - id: RELAY_RIDGE
+    role: relay
+    at: [1700, 2700]
+    power: {kind: solar, capacity_wh: 8, load_w: 1, solar_peak_w: 3}
+endpoints:
+  - {name: field-hospital, node: FIELD_HOSPITAL}
+  - {name: post-north, node: POST_NORTH}
+  - {name: post-east, node: POST_EAST}
+  - {name: post-south, node: POST_SOUTH}
+workload:
+  - {from: post-north, to: field-hospital, priority: CRITICAL, text: triage, every_s: 5400, end_s: 82800}
+  - {from: post-east, to: field-hospital, priority: CRITICAL, text: triage, every_s: 7200, start_s: 1800, end_s: 82800}
+  - {from: post-south, to: field-hospital, priority: URGENT, text: casualty list, size_bytes: 3000, every_s: 3600, end_s: 82800}
+  - {from: post-north, to: field-hospital, priority: ROUTINE, text: wound photo, size_bytes: 300000, every_s: 14400, end_s: 82800}
+  - {from: field-hospital, to: post-east, priority: URGENT, text: transfer plan, every_s: 10800, start_s: 3600, end_s: 82800}
+  - {from: field-hospital, to: post-south, priority: URGENT, text: supplies, every_s: 10800, start_s: 5400, end_s: 82800}
+faults:
+  - {at_s: 7200, node: POST_EAST, kind: power_cut, value: 3600}
+  - {at_s: 20000, node: JEEP, kind: rtc_reset}
+  - {at_s: 30000, node: TEAM_A, kind: power_cut, value: 900}
+  - {at_s: 40000, node: POST_SOUTH, kind: rtc_fail}

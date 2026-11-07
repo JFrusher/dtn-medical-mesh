@@ -1,0 +1,28 @@
+# Island clinics 15-40 km from a mainland hospital; a boat calls twice a day and a medevac
+# plane every 2 days. Sparse, long-delay contacts: expect some CRITICAL NOT DELIVERED (6 h TTL).
+name: island-medevac
+duration_s: 259200
+tick_s: 5
+radio: {wifi_range_m: 150}
+nodes:
+  - {id: MAINLAND_HOSPITAL, role: hub, sa: SA_MAINLAND, at: [0, 0]}
+  - {id: ISLAND_A, role: site, sa: SA_ISLAND_A, at: [15000, 0]}
+  - {id: ISLAND_B, role: site, sa: SA_ISLAND_B, at: [30000, 10000]}
+  - {id: ISLAND_C, role: site, sa: SA_ISLAND_C, at: [25000, -30000]}
+  - id: FERRY
+    role: mule
+    route: {waypoints: [[0, 0], [15000, 0], [30000, 10000]], speed: 8, dwell_s: 3600}
+  - id: MEDEVAC_PLANE
+    role: mule
+    route: {waypoints: [[0, 0], [25000, -30000], [30000, 10000]], speed: 60, dwell_s: 5400, start_s: 36000}
+endpoints:
+  - {name: hospital, node: MAINLAND_HOSPITAL}
+  - {name: island-a, node: ISLAND_A}
+  - {name: island-b, node: ISLAND_B}
+  - {name: island-c, node: ISLAND_C}
+workload:
+  - {from: island-a, to: hospital, priority: ROUTINE, text: clinic report, size_bytes: 5000, every_s: 21600, end_s: 252000}
+  - {from: island-b, to: hospital, priority: URGENT, text: vitals, size_bytes: 400, every_s: 14400, end_s: 252000}
+  - {from: island-c, to: hospital, priority: CRITICAL, text: medevac request, every_s: 43200, start_s: 3600, end_s: 252000}
+  - {from: island-c, to: hospital, priority: ROUTINE, text: x-ray, size_bytes: 1500000, every_s: 86400, start_s: 7200, end_s: 252000}
+  - {from: hospital, to: island-b, priority: URGENT, text: advice, every_s: 28800, start_s: 1000, end_s: 252000}
