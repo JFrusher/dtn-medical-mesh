@@ -9,6 +9,7 @@ from pathlib import Path
 
 from simulation import faults
 from simulation.endpoints import VirtualEndpoint
+from simulation.hostile import HostileCore
 from simulation.provision import provision, publish_directory
 from simulation.scenario import MessageSpec, Scenario, load_scenario
 from simulation.scheduler import Scheduler
@@ -37,8 +38,11 @@ def run(scenario: Scenario, seed: int, data_dir: Path, echo: bool = False) -> Ru
     world = World(scheduler, data_dir, scenario.radio, scenario.tick_s, log)
     for spec in scenario.nodes:
         battery = Battery(**spec.battery) if spec.battery else None
-        world.add_node(spec.config, spec.mobility, battery)
-    root = provision(list(world.nodes.values()), seed)
+        node = world.add_node(spec.config, spec.mobility, battery)
+        if spec.attacks or not spec.registered:
+            node.core_class, node.attacks = HostileCore, spec.attacks
+    unregistered = frozenset(s.config.node_id for s in scenario.nodes if not s.registered)
+    root = provision(list(world.nodes.values()), seed, unregistered)
     world.start()
     endpoints = {
         e.name: VirtualEndpoint(

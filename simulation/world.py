@@ -66,13 +66,17 @@ class SimNode:
     up: bool = False
     boots: int = 0
     battery: Battery | None = None  # None: mains powered
+    core_class: type[NodeCore] = NodeCore  # HostileCore for attackers
+    attacks: frozenset[str] = frozenset()
     external_power: bool = True
 
     def boot(self, now: float) -> None:
         """Start the node from what is on disk (also used after a power cut)."""
         if self.identity is None:
             raise RuntimeError(f"{self.id} was never provisioned")
-        self.core = NodeCore(self.config, self.storage.load(), self.identity)
+        self.core = self.core_class(self.config, self.storage.load(), self.identity)
+        if self.attacks:
+            self.core.attacks = self.attacks  # type: ignore[attr-defined]
         self.boot_at = now
         self.boots += 1
         self.up = True

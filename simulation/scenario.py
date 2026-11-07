@@ -10,6 +10,7 @@ from node.bundle import Priority
 from node.core import NodeConfig
 from node.pki import Role
 from simulation.faults import FaultSpec
+from simulation.hostile import ATTACKS
 from simulation.mobility import Mobility, Route, Static
 from simulation.radio_model import RadioParams
 from simulation.virtual_hw import Battery
@@ -26,6 +27,8 @@ class NodeSpec:
     config: NodeConfig
     mobility: Mobility
     battery: dict[str, Any] | None = None  # Battery(**battery) per run
+    attacks: frozenset[str] = frozenset()
+    registered: bool = True
 
 
 @dataclass(frozen=True)
@@ -86,7 +89,13 @@ def _parse(raw: dict[str, Any]) -> Scenario:
 
 
 def _node(raw: dict[str, Any]) -> NodeSpec:
-    _keys(raw, f"node {raw.get('id')}", {"id", "role", "sa", "at", "route", "power"})
+    _keys(raw, f"node {raw.get('id')}", {"id", "role", "sa", "at", "route", "power", "hostile"})
+    hostile = raw.get("hostile") or {}
+    _keys(hostile, f"hostile of {raw['id']}", {"attacks", "registered"})
+    attacks = frozenset(hostile.get("attacks", []))
+    if attacks - ATTACKS:
+        raise ValueError(f"unknown attacks {sorted(attacks - ATTACKS)}")
+    registered = bool(hostile.get("registered", True))
     battery = raw.get("power")
     if battery is not None:
         _keys(battery, f"power of {raw['id']}", {"kind", "capacity_wh", "load_w", "solar_peak_w"})
@@ -95,7 +104,7 @@ def _node(raw: dict[str, Any]) -> NodeSpec:
     if ("at" in raw) == ("route" in raw):
         raise ValueError(f"node {raw['id']}: give exactly one of 'at' or 'route'")
     if "at" in raw:
-        return NodeSpec(config, Static(_point(raw["at"])), battery)
+        return NodeSpec(config, Static(_point(raw["at"])), battery, attacks, registered)
     r = raw["route"]
     _keys(r, f"route of {raw['id']}", {"waypoints", "speed", "dwell_s", "start_s"})
     mobility = Route(
@@ -104,7 +113,7 @@ def _node(raw: dict[str, Any]) -> NodeSpec:
         dwell_s=float(r.get("dwell_s", 0)),
         start_s=float(r.get("start_s", 0)),
     )
-    return NodeSpec(config, mobility, battery)
+    return NodeSpec(config, mobility, battery, attacks, registered)
 
 
 def _endpoint(raw: dict[str, Any], node_ids: set[str]) -> EndpointSpec:

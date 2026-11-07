@@ -10,12 +10,16 @@ from simulation.virtual_hw import SIM_EPOCH, SeededEntropy, SoftwareSecureElemen
 from simulation.world import SimNode, World
 
 
-def provision(nodes: list[SimNode], seed: int) -> SoftwareSecureElement:
+def provision(
+    nodes: list[SimNode], seed: int, unregistered: frozenset[str] = frozenset()
+) -> SoftwareSecureElement:
     """Issue every node a certificate: hubs from the root, everyone else from the first hub.
+    Nodes in `unregistered` get a look-alike chain from a rogue root instead.
 
     Returns the root's secure element (offline in reality; kept for tests and hub tooling).
     """
     root = SoftwareSecureElement(SeededEntropy(f"{seed}:ROOT"))
+    rogue = SoftwareSecureElement(SeededEntropy(f"{seed}:ROGUE_ROOT"))
     now = int(SIM_EPOCH)
     hubs = [n for n in nodes if n.config.role is Role.HUB]
     if not hubs:
@@ -33,6 +37,15 @@ def provision(nodes: list[SimNode], seed: int) -> SoftwareSecureElement:
         if node.config.role is Role.HUB:
             continue
         c = node.config
+        if c.node_id in unregistered:
+            fake = issue(
+                rogue.sign, ROOT, "ROGUE_HUB", Role.HUB, "SA_ROGUE", rogue.public_key(), now
+            )
+            cert = issue(
+                rogue.sign, fake.cert_id, c.node_id, c.role, c.sa, node.se.public_key(), now
+            )
+            node.identity = Identity(cert, fake, rogue.public_key(), node.se.sign)
+            continue
         cert = issue(
             issuer.se.sign, issuer_cert.cert_id, c.node_id, c.role, c.sa, node.se.public_key(), now
         )
