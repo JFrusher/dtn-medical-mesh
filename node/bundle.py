@@ -8,6 +8,8 @@ from typing import TypeVar
 import cbor2
 
 FORMAT_VERSION = 2
+MAX_SHARDS = 256  # shard index is one byte in a shard ID
+MAX_BUCKET = 32 * 1024 * 1024
 T = TypeVar("T")
 
 
@@ -86,12 +88,18 @@ def decode_header(h: dict[str, object]) -> Header:
         injector=_typed(h["injector"], str),
         sig=_typed(h["sig"], bytes),
     )
-    if (
-        header.k < 1
-        or header.m < 0
-        or header.bundle_id != make_bundle_id(header.merkle_root, header.created)
-    ):
-        raise FormatError("inconsistent header")
+    # Ranges matter as much as types: these fields feed fixed-width encodings.
+    in_range = (
+        header.k >= 1
+        and header.m >= 0
+        and header.k + header.m <= MAX_SHARDS
+        and 0 <= header.created < 2**63
+        and 0 < header.lifetime_s < 2**31
+        and 0 < header.size_bucket <= MAX_BUCKET
+        and len(header.merkle_root) == 32
+    )
+    if not in_range or header.bundle_id != make_bundle_id(header.merkle_root, header.created):
+        raise FormatError("header field out of range or inconsistent")
     return header
 
 
