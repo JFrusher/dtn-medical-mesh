@@ -2,6 +2,7 @@ from pathlib import Path
 
 import pytest
 
+from endpoint.state import Status
 from node.bundle import Priority
 from simulation.runner import run
 from simulation.scenario import load_scenario
@@ -31,8 +32,9 @@ def test_same_seed_same_run(tmp_path: Path) -> None:
 def test_delivery_ack_returns_to_origin_and_purges_everywhere(tmp_path: Path) -> None:
     result = run(load_scenario("skeleton"), seed=1, data_dir=tmp_path)
     for name in ("clinic", "hospital"):
-        [sent] = result.endpoints[name].sent.values()
-        assert sent.status.value == "delivered", name
+        endpoint = result.endpoints[name]
+        [bid] = endpoint.sent
+        assert endpoint.status(bid) is Status.DELIVERED, name
     for node in result.world.nodes.values():
         assert node.core.shards == {}, node.id
         assert len(node.core.acks) == 2, node.id

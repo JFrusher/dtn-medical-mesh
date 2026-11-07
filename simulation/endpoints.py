@@ -1,33 +1,22 @@
 """Virtual endpoints (clinic/hospital laptops) attached to site nodes in the simulation."""
 
 from dataclasses import dataclass, field
-from enum import Enum
 from functools import partial
 
 from endpoint.crypto import CryptoError, EndpointKeys
 from endpoint.directory import DirectoryEntry, verified_entries
 from endpoint.pipeline import build_shards, open_delivered
+from endpoint.state import Outgoing, Status
 from node.bundle import Priority, decode_bundle, encode_shard
 from node.events import EndpointAck, Inject
 from simulation.virtual_hw import SIM_EPOCH, SeededEntropy
 from simulation.world import SimNode, World
 
 
-class Status(Enum):
-    IN_TRANSIT = "in transit"
-    DELIVERED = "delivered"
-
-
 @dataclass(frozen=True)
 class Received:
     sender: str | None  # directory name of the signing endpoint; None if not in the directory
     content: bytes
-
-
-@dataclass
-class SentMessage:
-    recipient: str
-    status: Status = Status.IN_TRANSIT
 
 
 @dataclass
@@ -39,7 +28,7 @@ class VirtualEndpoint:
     root_pubkey: bytes
     keys: EndpointKeys = field(init=False)
     directory: dict[str, DirectoryEntry] = field(default_factory=dict)
-    sent: dict[bytes, "SentMessage"] = field(default_factory=dict)
+    sent: dict[bytes, Outgoing] = field(default_factory=dict)
     inbox: list["Received"] = field(default_factory=list)
 
     def __post_init__(self) -> None:
@@ -66,9 +55,24 @@ class VirtualEndpoint:
         )
         encoded = tuple(encode_shard(s) for s in shards)
         self.world.dispatch(self.site, partial(Inject, shards=encoded))
-        bid = shards[0].header.bundle_id
-        self.sent[bid] = SentMessage(to)
-        return bid
+        h = shards[0].header
+        out = Outgoing(to, h.bundle_id, h.created, h.lifetime_s)
+        self.sent[h.bundle_id] = out
+        expires_at = out.expires_ms / 1000 - SIM_EPOCH
+        self.world.scheduler.schedule(expires_at + 0.001, partial(self._check_expiry, out))
+        return h.bundle_id
+
+    def status(self, bundle_id: bytes) -> Status:
+        return self.sent[bundle_id].status(self._now_ms())
+
+    def _now_ms(self) -> int:
+        return int((SIM_EPOCH + self.world.scheduler.now) * 1000)
+
+    def _check_expiry(self, out: Outgoing) -> None:
+        if out.status(self._now_ms()) is Status.NOT_DELIVERED:
+            self.world.log(
+                self.world.scheduler.now, f"NOT DELIVERED {self.name} -> {out.recipient}"
+            )
 
     def _on_deliver(self, encoded: bytes) -> None:
         bundle = decode_bundle(encoded)
@@ -88,4 +92,4 @@ class VirtualEndpoint:
             self.directory[entry.name] = entry
 
     def _on_delivered(self, bundle_id: bytes) -> None:
-        self.sent[bundle_id].status = Status.DELIVERED
+        self.sent[bundle_id].delivered_ms = self._now_ms()

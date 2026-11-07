@@ -4,6 +4,7 @@ from pathlib import Path
 import cbor2
 import pytest
 
+from endpoint.state import Status
 from node.bundle import decode_shard
 from simulation.runner import run
 from simulation.scenario import load_scenario
@@ -38,8 +39,9 @@ def test_only_the_recipient_opens_and_headers_name_no_endpoint(tmp_path: Path) -
         "WARD_A",
         "WARD_B",
     }
-    [sent] = result.endpoints["hospital"].sent.values()
-    assert sent.status.value == "delivered"
+    hospital = result.endpoints["hospital"]
+    [bid] = hospital.sent
+    assert hospital.status(bid) is Status.DELIVERED
 
     f.write_text(SCENARIO.replace("duration_s: 3600", "duration_s: 20"))  # stop while still held
     early = run(load_scenario(str(f)), seed=1, data_dir=tmp_path / "early")
