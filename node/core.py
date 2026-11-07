@@ -31,10 +31,12 @@ from node.events import (
     Delete,
     Deliver,
     Delivered,
+    DirectoryUpdate,
     EndpointAck,
     Event,
     FrameReceived,
     Inject,
+    PublishDirectory,
     Revoke,
     SendFrame,
     Store,
@@ -43,14 +45,17 @@ from node.hw.radio import RadioKind
 from node.pki import (
     RENEW_AFTER_S,
     Cert,
+    HubDoc,
     Identity,
-    RevocationList,
     Role,
     decode_cert,
-    decode_crl,
+    decode_doc,
+    doc_authentic,
     encode_cert,
-    encode_crl,
+    encode_doc,
     issue,
+    revoked_subjects,
+    sign_doc,
     valid,
 )
 
@@ -59,7 +64,7 @@ T_ACKS = "acks"
 T_ORIGIN = "origin"  # bundles injected here, awaiting a delivery ACK
 T_DELIVERED = "delivered"  # bundles handed to the attached endpoint
 T_CERTS = "certs"
-T_CRLS = "crls"
+T_DOCS = "docs"  # hub-signed documents: revocation lists and endpoint directories
 T_IDENTITY = "identity"  # renewed certificate, replacing the provisioned one
 SUMMARY_MAX_SKEW_S = 3600
 _SUMMARY_CONTEXT = b"dtn-medical-mesh/v1/summary"
@@ -102,10 +107,10 @@ class NodeCore:
         for c in (identity.cert, identity.issuer):
             if c is not None:
                 self.certs[c.cert_id] = c
-        self.crls: dict[str, RevocationList] = {
-            k.decode(): decode_crl(v) for k, v in records.get(T_CRLS, {}).items()
+        self.docs: dict[str, HubDoc] = {
+            k.decode(): decode_doc(v) for k, v in records.get(T_DOCS, {}).items()
         }
-        self.revoked = frozenset(s for crl in self.crls.values() for s in crl.subjects)
+        self.revoked = self._revoked()
         self._verified_headers: set[bytes] = set()
         self.shards: dict[bytes, Shard] = {
             k: decode_shard(v) for k, v in records.get(T_SHARDS, {}).items()
@@ -118,7 +123,7 @@ class NodeCore:
         self.peer_has: dict[str, set[bytes]] = {}  # connected peers' shard IDs, from their summary
         self.peer_acks: dict[str, set[bytes]] = {}
         self.peer_certs: dict[str, set[str]] = {}
-        self.peer_crls: dict[str, dict[str, int]] = {}
+        self.peer_docs: dict[str, dict[str, int]] = {}
 
     def handle(self, event: Event) -> list[Action]:
         if event.wall is not None:
@@ -127,7 +132,7 @@ class NodeCore:
             case ContactUp(radio=RadioKind.WIFI):
                 return [self._send(event.peer_id, self._summary(event.peer_id))]
             case ContactDown(radio=RadioKind.WIFI):
-                for table in (self.peer_has, self.peer_acks, self.peer_certs, self.peer_crls):
+                for table in (self.peer_has, self.peer_acks, self.peer_certs, self.peer_docs):
                     table.pop(event.peer_id, None)
                 return []
             case FrameReceived(radio=RadioKind.WIFI):
@@ -138,6 +143,8 @@ class NodeCore:
                 return self._endpoint_ack(event.bundle_id)
             case Revoke():
                 return self._revoke(event.subject)
+            case PublishDirectory():
+                return self._publish("dir", list(event.entries))
             case _:
                 return []
 
@@ -155,13 +162,13 @@ class NodeCore:
                 self.peer_has[peer_id] = {_bytes(i) for i in msg["ids"]}
                 self.peer_acks[peer_id] = {_bytes(i) for i in msg["acks"]}
                 self.peer_certs[peer_id] = {str(i) for i in msg["certs"]}
-                crls = msg["crls"]
-                if not isinstance(crls, dict):
-                    raise FormatError("summary crls must be a map")
-                self.peer_crls[peer_id] = {str(k): int(v) for k, v in crls.items()}
+                docs = msg["docs"]
+                if not isinstance(docs, dict):
+                    raise FormatError("summary docs must be a map")
+                self.peer_docs[peer_id] = {str(k): int(v) for k, v in docs.items()}
                 return self._renew(peer_id, peer_cert) + self._offer(peer_id)
-            if kind == "crl":
-                return self._on_crl(decode_crl(_bytes(msg["c"])))
+            if kind == "doc":
+                return self._on_doc(decode_doc(_bytes(msg["d"])))
             if kind == "renew":
                 return self._on_renewal(decode_cert(_bytes(msg["c"])))
             if kind == "cert":
@@ -181,7 +188,7 @@ class NodeCore:
             "ids": sorted(self.shards),
             "acks": sorted(self.acks),
             "certs": sorted(self.certs),
-            "crls": {k: c.seq for k, c in sorted(self.crls.items())},
+            "docs": {k: d.seq for k, d in sorted(self.docs.items())},
         }
         issuer = self.identity.issuer
         msg: dict[str, object] = {
@@ -254,7 +261,7 @@ class NodeCore:
 
     def _offer(self, peer_id: str) -> list[Action]:
         """Send a connected peer every revocation, ACK and shard it lacks, most important first."""
-        actions = self._crls_for(peer_id)
+        actions = self._docs_for(peer_id)
         known_acks = self.peer_acks[peer_id]
         new_acks = [self.acks[a] for a in sorted(self.acks.keys() - known_acks)]
         known_acks.update(a.bundle_id for a in new_acks)
@@ -269,46 +276,49 @@ class NodeCore:
             self._send(peer_id, {"t": "shard", "s": encode_shard(s)}) for s in missing
         ]
 
-    def _crls_for(self, peer_id: str) -> list[Action]:
-        known = self.peer_crls.setdefault(peer_id, {})
-        newer = [c for k, c in sorted(self.crls.items()) if known.get(k, -1) < c.seq]
-        out = self._certs_for(peer_id, {c.issuer for c in newer})
-        for c in newer:
-            known[c.issuer] = c.seq
-            out.append(self._send(peer_id, {"t": "crl", "c": encode_crl(c)}))
+    def _docs_for(self, peer_id: str) -> list[Action]:
+        known = self.peer_docs.setdefault(peer_id, {})
+        newer = [d for k, d in sorted(self.docs.items()) if known.get(k, -1) < d.seq]
+        out = self._certs_for(peer_id, {d.issuer for d in newer})
+        for d in newer:
+            known[d.key] = d.seq
+            out.append(self._send(peer_id, {"t": "doc", "d": encode_doc(d)}))
         return out
 
     def _revoke(self, subject: str) -> list[Action]:
-        if self.config.role is not Role.HUB:
-            raise ValueError("only a hub can revoke nodes")
-        mine = self.identity.cert.cert_id
-        current = self.crls.get(mine)
-        subjects = tuple(sorted({*(current.subjects if current else ()), subject}))
-        crl = RevocationList(mine, current.seq + 1 if current else 1, subjects)
-        return self._on_crl(replace(crl, sig=self.identity.sign(crl.signing_bytes())))
+        current = self.docs.get(f"crl:{self.identity.cert.cert_id}")
+        subjects = set(revoked_subjects(current)) if current else set()
+        return self._publish("crl", sorted(subjects | {subject}))
 
-    def _on_crl(self, crl: RevocationList) -> list[Action]:
-        issuer = self.certs.get(crl.issuer)
-        current = self.crls.get(crl.issuer)
-        if current is not None and current.seq >= crl.seq:
+    def _publish(self, kind: str, body: object) -> list[Action]:
+        if self.config.role is not Role.HUB:
+            raise ValueError("only a hub can publish revocations or directories")
+        current = self.docs.get(f"{kind}:{self.identity.cert.cert_id}")
+        return self._on_doc(sign_doc(self.identity, kind, current.seq + 1 if current else 1, body))
+
+    def _on_doc(self, doc: HubDoc) -> list[Action]:
+        current = self.docs.get(doc.key)
+        if current is not None and current.seq >= doc.seq:
             return []
-        if not (
-            issuer is not None
-            and issuer.role is Role.HUB
-            and self._valid(issuer)
-            and verify_p256(issuer.pubkey, crl.signing_bytes(), crl.sig)
-        ):
-            self.dropped["bad_crl"] += 1
+        issuer = self.certs.get(doc.issuer)
+        root = self.identity.root_pubkey
+        if not doc_authentic(doc, issuer, root, int(self.clock_s), self.certs, self.revoked):
+            self.dropped["bad_doc"] += 1
             return []
-        self.crls[crl.issuer] = crl
-        self.revoked = frozenset(s for c in self.crls.values() for s in c.subjects)
-        self._verified_headers.clear()  # re-check every injector against the new list
-        actions: list[Action] = [
-            Store(table=T_CRLS, key=crl.issuer.encode(), value=encode_crl(crl))
-        ]
+        self.docs[doc.key] = doc
+        actions: list[Action] = [Store(table=T_DOCS, key=doc.key.encode(), value=encode_doc(doc))]
+        if doc.kind == "crl":
+            self.revoked = self._revoked()
+            self._verified_headers.clear()  # re-check every injector against the new list
+        elif self.config.sa is not None and issuer is not None:
+            actions.append(DirectoryUpdate(doc=encode_doc(doc), issuer=encode_cert(issuer)))
         for peer in sorted(self.peer_has):
             actions += self._offer(peer)
         return actions
+
+    def _revoked(self) -> frozenset[str]:
+        crls = [d for d in self.docs.values() if d.kind == "crl"]
+        return frozenset(s for d in crls for s in revoked_subjects(d))
 
     def _certs_for(self, peer_id: str, cert_ids: set[str]) -> list[Action]:
         """Send the peer each certificate (issuer first) it needs to verify what follows."""
@@ -503,7 +513,7 @@ class NodeCore:
 
 
 def _summary_signing_bytes(msg: Mapping[str, object]) -> bytes:
-    body = cbor2.dumps([msg["ids"], msg["acks"], msg["certs"], msg["crls"]])
+    body = cbor2.dumps([msg["ids"], msg["acks"], msg["certs"], msg["docs"]])
     return _SUMMARY_CONTEXT + cbor2.dumps([msg["from"], msg["to"], msg["time"], body])
 
 

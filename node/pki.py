@@ -113,31 +113,73 @@ class Identity:
     sign: Signer
 
 
-@dataclass(frozen=True)
-class RevocationList:
-    """A hub's cumulative list of revoked node IDs; a higher seq replaces a lower one (§7.6)."""
+DOC_KINDS = ("crl", "dir")  # revocation list, endpoint directory
 
+
+@dataclass(frozen=True)
+class HubDoc:
+    """A hub-signed document that spreads over the mesh; a higher seq replaces a lower one.
+
+    kind "crl": body is the hub's cumulative list of revoked node IDs (§7.6).
+    kind "dir": body is the endpoint directory: names, service areas and public keys (§7.6).
+    """
+
+    kind: str
     issuer: str  # hub cert ID
     seq: int
-    subjects: tuple[str, ...]
+    body: bytes  # CBOR, meaning depends on kind
     sig: bytes = b""
 
+    @property
+    def key(self) -> str:
+        return f"{self.kind}:{self.issuer}"
+
     def signing_bytes(self) -> bytes:
-        body = [self.issuer, self.seq, list(self.subjects)]
-        return b"dtn-medical-mesh/v1/crl" + cbor2.dumps(body)
+        return b"dtn-medical-mesh/v1/hubdoc" + cbor2.dumps(
+            [self.kind, self.issuer, self.seq, self.body]
+        )
 
 
-def encode_crl(crl: RevocationList) -> bytes:
-    return cbor2.dumps([crl.issuer, crl.seq, list(crl.subjects), crl.sig])
+def sign_doc(identity: "Identity", kind: str, seq: int, body: object) -> HubDoc:
+    doc = HubDoc(kind, identity.cert.cert_id, seq, cbor2.dumps(body))
+    return replace(doc, sig=identity.sign(doc.signing_bytes()))
 
 
-def decode_crl(data: bytes) -> RevocationList:
+def encode_doc(doc: HubDoc) -> bytes:
+    return cbor2.dumps([doc.kind, doc.issuer, doc.seq, doc.body, doc.sig])
+
+
+def decode_doc(data: bytes) -> HubDoc:
     try:
-        issuer, seq, subjects, sig = cbor2.loads(data)
-        if not (isinstance(issuer, str) and isinstance(seq, int) and isinstance(sig, bytes)):
-            raise FormatError("bad revocation list field types")
-        if not all(isinstance(s, str) for s in subjects):
-            raise FormatError("revoked subjects must be strings")
-        return RevocationList(issuer, seq, tuple(subjects), sig)
+        kind, issuer, seq, body, sig = cbor2.loads(data)
+        doc = HubDoc(kind, issuer, seq, body, sig)
+        types_ok = isinstance(issuer, str) and isinstance(seq, int)
+        if kind not in DOC_KINDS or not types_ok or not isinstance(body, bytes):
+            raise FormatError("bad hub document")
+        return doc
     except (TypeError, ValueError, cbor2.CBORDecodeError) as e:
         raise FormatError(str(e)) from e
+
+
+def doc_authentic(
+    doc: HubDoc,
+    issuer: Cert | None,
+    root_pubkey: bytes,
+    now: int,
+    known: Mapping[str, Cert],
+    revoked: frozenset[str],
+) -> bool:
+    return (
+        issuer is not None
+        and issuer.cert_id == doc.issuer
+        and issuer.role is Role.HUB
+        and valid(issuer, known, root_pubkey, now, revoked)
+        and verify_p256(issuer.pubkey, doc.signing_bytes(), doc.sig)
+    )
+
+
+def revoked_subjects(doc: HubDoc) -> list[str]:
+    subjects = cbor2.loads(doc.body)
+    if not isinstance(subjects, list) or not all(isinstance(x, str) for x in subjects):
+        raise FormatError("revocation list body must be a list of node IDs")
+    return subjects

@@ -4,23 +4,24 @@ from dataclasses import dataclass, field
 from enum import Enum
 from functools import partial
 
-from endpoint.crypto import CryptoError, EndpointKeys, Opened
+from endpoint.crypto import CryptoError, EndpointKeys
+from endpoint.directory import DirectoryEntry, verified_entries
 from endpoint.pipeline import build_shards, open_delivered
 from node.bundle import Priority, decode_bundle, encode_shard
 from node.events import EndpointAck, Inject
-from simulation.virtual_hw import SeededEntropy
+from simulation.virtual_hw import SIM_EPOCH, SeededEntropy
 from simulation.world import SimNode, World
-
-
-@dataclass(frozen=True)
-class DirectoryEntry:
-    sa: str
-    encryption_public: bytes
 
 
 class Status(Enum):
     IN_TRANSIT = "in transit"
     DELIVERED = "delivered"
+
+
+@dataclass(frozen=True)
+class Received:
+    sender: str | None  # directory name of the signing endpoint; None if not in the directory
+    content: bytes
 
 
 @dataclass
@@ -34,18 +35,19 @@ class VirtualEndpoint:
     name: str
     site: SimNode
     world: World
-    directory: dict[str, DirectoryEntry]
     entropy: SeededEntropy
+    root_pubkey: bytes
     keys: EndpointKeys = field(init=False)
+    directory: dict[str, DirectoryEntry] = field(default_factory=dict)
     sent: dict[bytes, "SentMessage"] = field(default_factory=dict)
-    inbox: list[Opened] = field(default_factory=list)
+    inbox: list["Received"] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         if self.site.config.sa is None:
             raise ValueError(f"endpoint {self.name} must attach to a site or hub node")
         self.keys = EndpointKeys.generate(self.entropy)
-        self.directory[self.name] = DirectoryEntry(self.site.config.sa, self.keys.encryption_public)
         self.site.on_deliver = self._on_deliver
+        self.site.on_directory = self.update_directory
         self.site.on_delivered = self._on_delivered
 
     def send(self, to: str, content: bytes, priority: Priority) -> bytes:
@@ -71,12 +73,19 @@ class VirtualEndpoint:
     def _on_deliver(self, encoded: bytes) -> None:
         bundle = decode_bundle(encoded)
         try:
-            self.inbox.append(open_delivered(bundle, self.keys))
+            opened = open_delivered(bundle, self.keys)
         except CryptoError:
             return  # addressed to another endpoint in this service area
+        by_key = {e.signing_public: e.name for e in self.directory.values()}
+        self.inbox.append(Received(by_key.get(opened.signer), opened.content))
         self.world.log(self.world.scheduler.now, f"OPENED by {self.name}")
         bid = bundle.header.bundle_id
         self.world.dispatch(self.site, partial(EndpointAck, bundle_id=bid))
+
+    def update_directory(self, doc: bytes, issuer: bytes) -> None:
+        now = int(SIM_EPOCH + self.world.scheduler.now)
+        for entry in verified_entries(doc, issuer, self.root_pubkey, now):
+            self.directory[entry.name] = entry
 
     def _on_delivered(self, bundle_id: bytes) -> None:
         self.sent[bundle_id].status = Status.DELIVERED

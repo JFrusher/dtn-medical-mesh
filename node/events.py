@@ -70,7 +70,24 @@ class Revoke(EventBase):
     subject: str
 
 
-Event = ContactUp | ContactDown | FrameReceived | Timer | PowerLow | Inject | EndpointAck | Revoke
+@dataclass(frozen=True, kw_only=True)
+class PublishDirectory(EventBase):
+    """Operator at a hub publishes the endpoint directory (CBOR-able entries)."""
+
+    entries: tuple[object, ...]
+
+
+Event = (
+    ContactUp
+    | ContactDown
+    | FrameReceived
+    | Timer
+    | PowerLow
+    | Inject
+    | EndpointAck
+    | Revoke
+    | PublishDirectory
+)
 
 # --- Actions ----------------------------------------------------------------
 
@@ -124,4 +141,12 @@ class Delivered:
     bundle_id: bytes
 
 
-Action = SendFrame | Store | Delete | SetTimer | Deliver | Delivered | Emit
+@dataclass(frozen=True, kw_only=True)
+class DirectoryUpdate:
+    """Hand a newer hub-signed endpoint directory (and its issuer cert) to the endpoint."""
+
+    doc: bytes
+    issuer: bytes
+
+
+Action = SendFrame | Store | Delete | SetTimer | Deliver | Delivered | DirectoryUpdate | Emit

@@ -15,6 +15,7 @@ from node.events import (
     Delete,
     Deliver,
     Delivered,
+    DirectoryUpdate,
     Emit,
     Event,
     FrameReceived,
@@ -47,6 +48,7 @@ class SimNode:
     boot_at: float = 0.0
     on_deliver: Callable[[bytes], None] | None = None
     on_delivered: Callable[[bytes], None] | None = None
+    on_directory: Callable[[bytes, bytes], None] | None = None
 
     def boot(self, now: float) -> None:
         """Start the node from what is on disk (also used after a power cut)."""
@@ -125,6 +127,9 @@ class World:
                 self.log(self.scheduler.now, f"ACKED at origin {node.id}")
                 if node.on_delivered:
                     node.on_delivered(action.bundle_id)
+            case DirectoryUpdate():
+                if node.on_directory:
+                    node.on_directory(action.doc, action.issuer)
             case Emit():
                 pass
 

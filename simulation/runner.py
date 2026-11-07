@@ -7,8 +7,8 @@ from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
 
-from simulation.endpoints import DirectoryEntry, VirtualEndpoint
-from simulation.provision import provision
+from simulation.endpoints import VirtualEndpoint
+from simulation.provision import provision, publish_directory
 from simulation.scenario import MessageSpec, Scenario, load_scenario
 from simulation.scheduler import Scheduler
 from simulation.virtual_hw import SeededEntropy
@@ -36,15 +36,15 @@ def run(scenario: Scenario, seed: int, data_dir: Path, echo: bool = False) -> Ru
     world = World(scheduler, data_dir, scenario.radio, scenario.tick_s, log)
     for spec in scenario.nodes:
         world.add_node(spec.config, spec.mobility)
-    provision(list(world.nodes.values()), seed)
+    root = provision(list(world.nodes.values()), seed)
     world.start()
-    directory: dict[str, DirectoryEntry] = {}
     endpoints = {
         e.name: VirtualEndpoint(
-            e.name, world.nodes[e.node], world, directory, SeededEntropy(f"{seed}:{e.name}")
+            e.name, world.nodes[e.node], world, SeededEntropy(f"{seed}:{e.name}"), root.public_key()
         )
         for e in scenario.endpoints
     }
+    publish_directory(world, endpoints)
 
     def send(m: MessageSpec) -> None:
         endpoints[m.sender].send(m.recipient, m.text.encode(), m.priority)
