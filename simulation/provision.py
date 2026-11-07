@@ -1,6 +1,6 @@
 """Provision virtual nodes the way a hub would in person (spec §7.6)."""
 
-from node.pki import ROOT, Identity, Role, issue
+from node.pki import HUB_CERT_LIFETIME_S, ROOT, Identity, Role, issue
 from simulation.virtual_hw import SIM_EPOCH, SeededEntropy, SoftwareSecureElement
 from simulation.world import SimNode
 
@@ -18,7 +18,9 @@ def provision(nodes: list[SimNode], seed: int) -> SoftwareSecureElement:
     hub_certs = {}
     for hub in hubs:
         c = hub.config
-        cert = issue(root.sign, ROOT, c.node_id, c.role, c.sa, hub.se.public_key(), now)
+        cert = issue(
+            root.sign, ROOT, c.node_id, c.role, c.sa, hub.se.public_key(), now, HUB_CERT_LIFETIME_S
+        )
         hub_certs[c.node_id] = cert
         hub.identity = Identity(cert, None, root.public_key(), hub.se.sign)
     issuer, issuer_cert = hubs[0], hub_certs[hubs[0].config.node_id]

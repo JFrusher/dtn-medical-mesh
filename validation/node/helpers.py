@@ -13,7 +13,7 @@ from node.config import PRIORITY_CLASSES
 from node.core import T_CERTS, NodeConfig, NodeCore, _summary_signing_bytes
 from node.events import Action, ContactUp, FrameReceived, Inject, SendFrame
 from node.hw.radio import RadioKind
-from node.pki import ROOT, Identity, Role, encode_cert, issue
+from node.pki import HUB_CERT_LIFETIME_S, ROOT, Identity, Role, encode_cert, issue
 from simulation.virtual_hw import SIM_EPOCH, SeededEntropy, SoftwareSecureElement
 
 W = RadioKind.WIFI
@@ -103,7 +103,9 @@ def inject(node: NodeCore, shards: list[Shard]) -> list[Action]:
 NOW = int(SIM_EPOCH)
 TEST_ROOT = SoftwareSecureElement(SeededEntropy("test-root"))
 TEST_HUB_SE = SoftwareSecureElement(SeededEntropy("test-hub"))
-TEST_HUB = issue(TEST_ROOT.sign, ROOT, "H", Role.HUB, "SA_H", TEST_HUB_SE.public_key(), NOW)
+TEST_HUB = issue(
+    TEST_ROOT.sign, ROOT, "H", Role.HUB, "SA_H", TEST_HUB_SE.public_key(), NOW, HUB_CERT_LIFETIME_S
+)
 
 
 @cache

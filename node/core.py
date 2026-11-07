@@ -41,6 +41,7 @@ from node.events import (
 )
 from node.hw.radio import RadioKind
 from node.pki import (
+    RENEW_AFTER_S,
     Cert,
     Identity,
     RevocationList,
@@ -49,6 +50,7 @@ from node.pki import (
     decode_crl,
     encode_cert,
     encode_crl,
+    issue,
     valid,
 )
 
@@ -58,6 +60,7 @@ T_ORIGIN = "origin"  # bundles injected here, awaiting a delivery ACK
 T_DELIVERED = "delivered"  # bundles handed to the attached endpoint
 T_CERTS = "certs"
 T_CRLS = "crls"
+T_IDENTITY = "identity"  # renewed certificate, replacing the provisioned one
 SUMMARY_MAX_SKEW_S = 3600
 _SUMMARY_CONTEXT = b"dtn-medical-mesh/v1/summary"
 
@@ -86,6 +89,11 @@ class NodeCore:
         if (cert.subject, cert.role, cert.sa) != (config.node_id, config.role, config.sa):
             raise ValueError(f"{config.node_id}: certificate does not match the node config")
         self.config = config
+        renewed = records.get(T_IDENTITY, {})
+        if renewed:
+            cert, issuer = (decode_cert(renewed[k]) for k in (b"cert", b"issuer"))
+            if cert.pubkey == identity.cert.pubkey and cert.not_after > identity.cert.not_after:
+                identity = replace(identity, cert=cert, issuer=issuer)
         self.identity = identity
         self.clock_s = 0.0  # newest RTC reading seen; replaced by the HLC in P4.S06
         self.certs: dict[str, Cert] = {
@@ -140,7 +148,8 @@ class NodeCore:
             msg = cbor2.loads(frame)
             kind = msg["t"]
             if kind == "summary":
-                if not self._summary_authentic(peer_id, msg):
+                peer_cert = self._summary_authentic(peer_id, msg)
+                if peer_cert is None:
                     self.dropped["unauthenticated_peer"] += 1
                     return []
                 self.peer_has[peer_id] = {_bytes(i) for i in msg["ids"]}
@@ -150,9 +159,11 @@ class NodeCore:
                 if not isinstance(crls, dict):
                     raise FormatError("summary crls must be a map")
                 self.peer_crls[peer_id] = {str(k): int(v) for k, v in crls.items()}
-                return self._offer(peer_id)
+                return self._renew(peer_id, peer_cert) + self._offer(peer_id)
             if kind == "crl":
                 return self._on_crl(decode_crl(_bytes(msg["c"])))
+            if kind == "renew":
+                return self._on_renewal(decode_cert(_bytes(msg["c"])))
             if kind == "cert":
                 return self._on_cert(decode_cert(_bytes(msg["c"])))
             if kind == "shard":
@@ -184,7 +195,7 @@ class NodeCore:
         msg["sig"] = self.identity.sign(_summary_signing_bytes(msg))
         return msg
 
-    def _summary_authentic(self, peer_id: str, msg: dict[str, object]) -> bool:
+    def _summary_authentic(self, peer_id: str, msg: dict[str, object]) -> Cert | None:
         """Peer's cert chain is valid, names this peer, and signed a summary meant for us now."""
         cert = decode_cert(_bytes(msg["from"]))
         if msg["issuer"] is not None:
@@ -200,9 +211,46 @@ class NodeCore:
             and self._valid(cert)
             and verify_p256(cert.pubkey, _summary_signing_bytes(msg), _bytes(msg["sig"]))
         )
-        if ok:
-            self._on_cert(cert)
-        return ok
+        if not ok:
+            return None
+        self._on_cert(cert)
+        return cert
+
+    def _renew(self, peer_id: str, peer_cert: Cert) -> list[Action]:
+        """A hub reissues a docked node's certificate once it is a day old (§7.6)."""
+        now = int(self.clock_s)
+        if (
+            self.config.role is not Role.HUB
+            or peer_cert.role is Role.HUB
+            or now - peer_cert.not_before < RENEW_AFTER_S
+        ):
+            return []
+        c = peer_cert
+        mine = self.identity.cert
+        fresh = issue(self.identity.sign, mine.cert_id, c.subject, c.role, c.sa, c.pubkey, now)
+        return [
+            *self._certs_for(peer_id, {mine.cert_id}),
+            self._send(peer_id, {"t": "renew", "c": encode_cert(fresh)}),
+        ]
+
+    def _on_renewal(self, cert: Cert) -> list[Action]:
+        mine = self.identity.cert
+        issuer = self.certs.get(cert.issuer)
+        if not (
+            (cert.subject, cert.role, cert.sa, cert.pubkey)
+            == (mine.subject, mine.role, mine.sa, mine.pubkey)
+            and cert.not_after > mine.not_after
+            and issuer is not None
+            and self._valid(cert)
+        ):
+            self.dropped["bad_renewal"] += 1
+            return []
+        self.identity = replace(self.identity, cert=cert, issuer=issuer)
+        self.certs[cert.cert_id] = cert
+        return [
+            Store(table=T_IDENTITY, key=b"cert", value=encode_cert(cert)),
+            Store(table=T_IDENTITY, key=b"issuer", value=encode_cert(issuer)),
+        ]
 
     def _offer(self, peer_id: str) -> list[Action]:
         """Send a connected peer every revocation, ACK and shard it lacks, most important first."""

@@ -15,6 +15,8 @@ from node.crypto import verify_p256
 
 ROOT = "ROOT"
 CERT_LIFETIME_S = 14 * 24 * 3600
+HUB_CERT_LIFETIME_S = 365 * 24 * 3600  # hubs are renewed by the offline root, by hand
+RENEW_AFTER_S = 24 * 3600  # a docked node's cert is reissued once it is a day old
 _CONTEXT = b"dtn-medical-mesh/v1/cert"
 
 Signer = Callable[[bytes], bytes]
