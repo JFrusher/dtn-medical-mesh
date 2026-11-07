@@ -2,6 +2,10 @@
 
 Companion to [`PROJECT_SPEC.md`](PROJECT_SPEC.md). Section references (§) point there.
 
+## Status
+
+**Phases 0–7 are implemented.** All active requirements are covered by passing tests (`uv run python validation/trace_matrix.py`); every shipped scenario reports zero silent losses; the stress scenario runs on 5 seeds in CI. Deviations from the steps below are recorded in commit messages and in spec §17. Next: hardware phases H1/H2.
+
 ## How to use this plan
 
 - Each step (`P<phase>.S<nn>`) is **one commit** that Claude Code (or a person) can finish in one go.
