@@ -24,16 +24,17 @@ def test_inject_stores_every_shard_and_contact_sends_summary() -> None:
     assert actions[0] == Store(table="origin", key=bid, value=b"")
     assert [a.key for a in actions[1:] if isinstance(a, Store)] == [s.shard_id for s in shards]
     up = clinic.handle(ContactUp(mono=1, wall=None, peer_id="M", radio=W))
-    assert frames(up) == [{"t": "summary", "ids": sorted(s.shard_id for s in shards), "acks": []}]
+    [summary] = frames(up)
+    assert summary["ids"] == sorted(s.shard_id for s in shards) and summary["acks"] == []
 
 
 def test_offers_only_missing_shards_most_urgent_first() -> None:
     routine, critical = make_shards(b"a"), make_shards(b"b", priority=Priority.CRITICAL)
     node = make_node("M", Role.MULE, None, records(routine, critical))
     have = [s.shard_id for s in routine[:3]]
-    sent = frames(frame(node, "P", {"t": "summary", "ids": have, "acks": []}))
+    sent = frames(frame(node, "P", {"t": "summary", "ids": have, "acks": [], "certs": []}))
     expected = critical + routine[3:]
-    assert [f["s"] for f in sent] == [encode_shard(s) for s in expected]
+    assert [f["s"] for f in sent if f["t"] == "shard"] == [encode_shard(s) for s in expected]
 
 
 def test_destination_rebuilds_from_any_k_and_delivers_once() -> None:
@@ -64,7 +65,8 @@ def test_new_shards_go_to_already_connected_peer() -> None:
     clinic = make_node("C", Role.SITE, "SA_C")
     connect(clinic, "M")
     shards = make_shards(b"late")
-    assert len(frames(inject(clinic, shards))) == len(shards)
+    sent = [f for f in frames(inject(clinic, shards)) if f["t"] == "shard"]
+    assert len(sent) == len(shards)
     assert inject(clinic, shards) == []
 
 

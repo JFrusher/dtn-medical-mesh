@@ -39,6 +39,11 @@ class Header:
     injector: str  # cert ID of the site node that signed this header
     sig: bytes  # injector's P-256 signature over every other field
 
+    def signing_bytes(self) -> bytes:
+        fields = asdict(self)
+        del fields["sig"]
+        return b"dtn-medical-mesh/v1/header" + cbor2.dumps(fields)
+
 
 @dataclass(frozen=True)
 class Bundle:

@@ -61,7 +61,6 @@ class VirtualEndpoint:
             dst_sa=entry.sa,
             priority=priority,
             created=int(self.world.scheduler.now * 1000),
-            injector=self.site.config.node_id,
         )
         encoded = tuple(encode_shard(s) for s in shards)
         self.world.dispatch(self.site, partial(Inject, shards=encoded))

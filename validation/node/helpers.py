@@ -2,6 +2,7 @@
 
 import hashlib
 from collections.abc import Sequence
+from dataclasses import replace
 from functools import cache
 
 import cbor2
@@ -9,10 +10,10 @@ import cbor2
 from node import erasure, merkle
 from node.bundle import Header, Priority, Shard, encode_shard, make_bundle_id
 from node.config import PRIORITY_CLASSES
-from node.core import NodeConfig, NodeCore
+from node.core import T_CERTS, NodeConfig, NodeCore
 from node.events import Action, ContactUp, FrameReceived, Inject, SendFrame
 from node.hw.radio import RadioKind
-from node.pki import ROOT, Identity, Role, issue
+from node.pki import ROOT, Identity, Role, encode_cert, issue
 from simulation.virtual_hw import SIM_EPOCH, SeededEntropy, SoftwareSecureElement
 
 W = RadioKind.WIFI
@@ -40,9 +41,10 @@ def make_shards(
         cls.k,
         cls.m,
         root,
-        "C",
+        CLINIC.cert.cert_id,
         b"",
     )
+    h = replace(h, sig=CLINIC.sign(h.signing_bytes()))
     return [Shard(h, i, b, tuple(proofs[i])) for i, b in enumerate(blocks)]
 
 
@@ -64,7 +66,7 @@ def connect(
     node: NodeCore, peer: str, ids: Sequence[bytes] = (), acks: Sequence[bytes] = ()
 ) -> None:
     node.handle(ContactUp(mono=0, wall=None, peer_id=peer, radio=W))
-    frame(node, peer, {"t": "summary", "ids": list(ids), "acks": list(acks)})
+    frame(node, peer, {"t": "summary", "ids": list(ids), "acks": list(acks), "certs": []})
 
 
 def shard_msg(s: Shard) -> dict[str, object]:
@@ -105,4 +107,11 @@ def make_node(
     capacity: int = 32 * 1024**3,
 ) -> NodeCore:
     config = NodeConfig(node_id, role, sa, capacity)
-    return NodeCore(config, held or {}, identity(node_id, role, sa))
+    initial = {**(held or {})}
+    initial.setdefault(T_CERTS, {})[CLINIC.cert.cert_id.encode()] = encode_cert(CLINIC.cert)
+    core = NodeCore(config, initial, identity(node_id, role, sa))
+    core.clock_s = NOW + 60  # as if an event with a wall time had arrived
+    return core
+
+
+CLINIC = identity("C", Role.SITE, "SA_C")  # the test site that signs make_shards() headers

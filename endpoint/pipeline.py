@@ -18,8 +18,8 @@ def build_shards(
     dst_sa: str,
     priority: Priority,
     created: int,
-    injector: str,
 ) -> list[Shard]:
+    """The site node fills in `injector` and signs the header when it receives the shards."""
     padded = pad(seal(content, recipient, author, entropy))
     cls = PRIORITY_CLASSES[priority]
     blocks = erasure.encode(padded, cls.k, cls.m)
@@ -35,8 +35,8 @@ def build_shards(
         k=cls.k,
         m=cls.m,
         merkle_root=root,
-        injector=injector,
-        sig=b"",  # signed by the injecting site node from P3.S03
+        injector="",
+        sig=b"",
     )
     return [Shard(header, i, b, tuple(proofs[i])) for i, b in enumerate(blocks)]
 

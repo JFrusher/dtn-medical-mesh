@@ -6,12 +6,21 @@ State is rebuilt from storage records on boot, so a power cut loses nothing comm
 
 from collections import Counter
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import cbor2
 
 from node import erasure, merkle
-from node.bundle import Bundle, FormatError, Shard, decode_shard, encode_bundle, encode_shard
+from node.bundle import (
+    Bundle,
+    FormatError,
+    Header,
+    Shard,
+    decode_shard,
+    encode_bundle,
+    encode_shard,
+)
+from node.crypto import verify_p256
 from node.events import (
     Action,
     ContactDown,
@@ -27,12 +36,13 @@ from node.events import (
     Store,
 )
 from node.hw.radio import RadioKind
-from node.pki import Identity, Role
+from node.pki import Cert, Identity, Role, decode_cert, encode_cert, valid
 
 T_SHARDS = "shards"
 T_ACKS = "acks"
 T_ORIGIN = "origin"  # bundles injected here, awaiting a delivery ACK
 T_DELIVERED = "delivered"  # bundles handed to the attached endpoint
+T_CERTS = "certs"
 
 
 class StorageFull(Exception):
@@ -60,6 +70,15 @@ class NodeCore:
             raise ValueError(f"{config.node_id}: certificate does not match the node config")
         self.config = config
         self.identity = identity
+        self.clock_s = 0.0  # newest RTC reading seen; replaced by the HLC in P4.S06
+        self.certs: dict[str, Cert] = {
+            k.decode(): decode_cert(v) for k, v in records.get(T_CERTS, {}).items()
+        }
+        for c in (identity.cert, identity.issuer):
+            if c is not None:
+                self.certs[c.cert_id] = c
+        self.revoked: frozenset[str] = frozenset()
+        self._verified_headers: set[bytes] = set()
         self.shards: dict[bytes, Shard] = {
             k: decode_shard(v) for k, v in records.get(T_SHARDS, {}).items()
         }
@@ -70,15 +89,23 @@ class NodeCore:
         self.dropped = Counter[str]()
         self.peer_has: dict[str, set[bytes]] = {}  # connected peers' shard IDs, from their summary
         self.peer_acks: dict[str, set[bytes]] = {}
+        self.peer_certs: dict[str, set[str]] = {}
 
     def handle(self, event: Event) -> list[Action]:
+        if event.wall is not None:
+            self.clock_s = max(self.clock_s, event.wall)
         match event:
             case ContactUp(radio=RadioKind.WIFI):
-                summary = {"t": "summary", "ids": sorted(self.shards), "acks": sorted(self.acks)}
+                summary = {
+                    "t": "summary",
+                    "ids": sorted(self.shards),
+                    "acks": sorted(self.acks),
+                    "certs": sorted(self.certs),
+                }
                 return [self._send(event.peer_id, summary)]
             case ContactDown(radio=RadioKind.WIFI):
-                self.peer_has.pop(event.peer_id, None)
-                self.peer_acks.pop(event.peer_id, None)
+                for table in (self.peer_has, self.peer_acks, self.peer_certs):
+                    table.pop(event.peer_id, None)
                 return []
             case FrameReceived(radio=RadioKind.WIFI):
                 return self._on_frame(event.peer_id, event.frame)
@@ -98,7 +125,10 @@ class NodeCore:
             if kind == "summary":
                 self.peer_has[peer_id] = {_bytes(i) for i in msg["ids"]}
                 self.peer_acks[peer_id] = {_bytes(i) for i in msg["acks"]}
+                self.peer_certs[peer_id] = {str(i) for i in msg["certs"]}
                 return self._offer(peer_id)
+            if kind == "cert":
+                return self._on_cert(decode_cert(_bytes(msg["c"])))
             if kind == "shard":
                 return self._accept(decode_shard(_bytes(msg["s"])), source=peer_id)
             if kind == "ack":
@@ -118,9 +148,50 @@ class NodeCore:
         missing = [s for i, s in self.shards.items() if i not in has]
         missing.sort(key=lambda s: (s.header.priority, s.header.created, s.shard_id))
         has.update(s.shard_id for s in missing)
+        actions += self._certs_for(peer_id, {s.header.injector for s in missing})
         return actions + [
             self._send(peer_id, {"t": "shard", "s": encode_shard(s)}) for s in missing
         ]
+
+    def _certs_for(self, peer_id: str, cert_ids: set[str]) -> list[Action]:
+        """Send the peer each certificate (issuer first) it needs to verify what follows."""
+        known = self.peer_certs.setdefault(peer_id, set())
+        out: list[Action] = []
+        for cid in sorted(cert_ids):
+            cert = self.certs[cid]
+            for c in (self.certs.get(cert.issuer), cert):
+                if c is not None and c.cert_id not in known:
+                    known.add(c.cert_id)
+                    out.append(self._send(peer_id, {"t": "cert", "c": encode_cert(c)}))
+        return out
+
+    def _on_cert(self, cert: Cert) -> list[Action]:
+        cid = cert.cert_id
+        if cid in self.certs or not self._valid(cert):
+            return []
+        self.certs[cid] = cert
+        return [Store(table=T_CERTS, key=cid.encode(), value=encode_cert(cert))]
+
+    def _valid(self, cert: Cert) -> bool:
+        root = self.identity.root_pubkey
+        return valid(cert, self.certs, root, int(self.clock_s), self.revoked)
+
+    def _header_ok(self, header: Header) -> bool:
+        """Injector is a valid site/hub in the source SA and signed this exact header."""
+        key = header.bundle_id + header.sig
+        if key in self._verified_headers:
+            return True
+        cert = self.certs.get(header.injector)
+        ok = (
+            cert is not None
+            and cert.role in (Role.SITE, Role.HUB)
+            and cert.sa == header.src_sa
+            and self._valid(cert)
+            and verify_p256(cert.pubkey, header.signing_bytes(), header.sig)
+        )
+        if ok:
+            self._verified_headers.add(key)
+        return ok
 
     # --- shards -------------------------------------------------------------
 
@@ -131,6 +202,11 @@ class NodeCore:
         bid = bids.pop()
         if not all(_intact(s) for s in shards):
             raise ValueError("endpoint injected a shard that fails verification")
+        if shards[0].header.src_sa != self.config.sa:
+            raise ValueError("endpoint injected a bundle for another source SA")
+        header = replace(shards[0].header, injector=self.identity.cert.cert_id, sig=b"")
+        header = replace(header, sig=self.identity.sign(header.signing_bytes()))
+        shards = [replace(s, header=header) for s in shards]
         if bid in self.acks or any(s.shard_id in self.shards for s in shards):
             return []
         actions = self._make_room(shards[0], sum(len(s.data) for s in shards))
@@ -150,6 +226,9 @@ class NodeCore:
             return []
         if not _intact(shard):
             self.dropped["corrupt"] += 1
+            return []
+        if not self._header_ok(shard.header):
+            self.dropped["bad_signature"] += 1
             return []
         evictions = self._make_room(shard, len(shard.data))
         if evictions is None:
