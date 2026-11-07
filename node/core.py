@@ -4,7 +4,7 @@ handle(event) returns actions; it never touches clocks, radios, disk or randomne
 State is rebuilt from storage records on boot, so a power cut loses nothing committed.
 """
 
-from collections import Counter
+from collections import Counter, defaultdict, deque
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
 
@@ -80,6 +80,7 @@ class NodeConfig:
     role: Role
     sa: str | None  # service area served; None for mules and relays
     capacity_bytes: int = 32 * 1024**3
+    max_new_bundles_per_injector_per_hour: int = 200
 
     def __post_init__(self) -> None:
         if (self.role in (Role.HUB, Role.SITE)) != (self.sa is not None):
@@ -112,6 +113,7 @@ class NodeCore:
         }
         self.revoked = self._revoked()
         self._verified_headers: set[bytes] = set()
+        self._injected_at: dict[str, deque[float]] = defaultdict(deque)  # per injector cert
         self.shards: dict[bytes, Shard] = {
             k: decode_shard(v) for k, v in records.get(T_SHARDS, {}).items()
         }
@@ -397,6 +399,9 @@ class NodeCore:
         if not self._header_ok(shard.header):
             self.dropped["bad_signature"] += 1
             return []
+        if not self._shards_of(bid) and not self._within_rate(shard.header.injector):
+            self.dropped["rate_limited"] += 1
+            return []
         evictions = self._make_room(shard, len(shard.data))
         if evictions is None:
             self.dropped["full"] += 1  # refusing is safe: the sender keeps its copy
@@ -431,6 +436,16 @@ class NodeCore:
             return None
         self.dropped["evicted"] += len(victims)
         return [self._remove_shard(s) for s in victims]
+
+    def _within_rate(self, injector: str) -> bool:
+        """Admit a new bundle unless this injector exceeded its hourly budget (REQ-SEC-12)."""
+        times = self._injected_at[injector]
+        while times and times[0] <= self.clock_s - 3600:
+            times.popleft()
+        if len(times) >= self.config.max_new_bundles_per_injector_per_hour:
+            return False
+        times.append(self.clock_s)
+        return True
 
     def _store_shard(self, shard: Shard) -> list[Action]:
         self.shards[shard.shard_id] = shard
