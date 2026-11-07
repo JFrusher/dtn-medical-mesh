@@ -67,7 +67,7 @@ button, select, textarea, input { font: inherit; color: inherit; }
 
 .following { position: absolute; top: 16px; left: 50%; transform: translateX(-50%); z-index: 3; display: flex; gap: 10px; align-items: center;
   background: var(--surface); border: 1px solid var(--rule); border-radius: 6px; padding: 6px 8px 6px 12px; color: var(--muted); }
-.following[hidden] { display: none; }
+.following[hidden], .journey:not([hidden]) ~ .following { display: none; }
 .following b { color: var(--transit); font-weight: 600; }
 .following button { border: 0; background: var(--paper); border-radius: 5px; padding: 2px 9px; cursor: pointer; }
 

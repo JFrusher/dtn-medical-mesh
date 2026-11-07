@@ -90,7 +90,10 @@
       document.getElementById("journey").hidden = name !== "journey";
     };
     for (const v of views) v.onclick = () => showView(v.dataset.view);
-    document.addEventListener("follow", ev => { journey.show(ev.detail); showView("journey"); });
+    document.addEventListener("follow", ev => {
+      for (const d of document.querySelectorAll(".drawer:not([hidden])")) d.dispatchEvent(new Event("close-drawer"));
+      journey.show(ev.detail); showView("journey");
+    });
     const buttons = document.querySelectorAll(".speed button");
     for (const b of buttons) b.onclick = () => fetch("/api/control", {
       method: "POST", headers: { "content-type": "application/json" },

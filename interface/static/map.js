@@ -14,6 +14,11 @@ export class NetMap {
   }
 
   draw(t) {
+    // glide from where each node is drawn now to its new position over the next update interval
+    this.from = Object.fromEntries((this.t?.nodes ?? []).map(n => [n.id, this.at(n.id)]));
+    this.arrived = performance.now();
+    this.gap = this.t ? Math.min(1500, this.arrived - (this.lastDraw ?? this.arrived)) || 500 : 0;
+    this.lastDraw = this.arrived;
     this.t = t;
     if (!this.map) this.init(t);
     for (const tr of t.transfers) {  // each new custody receipt starts a flight
@@ -46,8 +51,19 @@ export class NetMap {
       { padding: { top: 80, bottom: 60, left: 70, right: 150 }, animate: false });  // labels sit right
     this.map.on("move", () => this.render());
     this.map.on("resize", () => this.render());
-    const tick = () => { if (this.flights.length) this.render(); requestAnimationFrame(tick); };
+    const tick = () => {
+      if (this.flights.length || performance.now() - this.arrived < this.gap) this.render();
+      requestAnimationFrame(tick);
+    };
     requestAnimationFrame(tick);
+  }
+
+  at(id) {  // map position of a node right now, part-way between its last two reported positions
+    const n = this.t.nodes.find(m => m.id === id), from = this.from?.[id];
+    if (!from || this.reduceMotion || !this.gap) return [n.x, n.y];
+    const k = Math.min(1, (performance.now() - this.arrived) / this.gap);
+    if (Math.hypot(n.x - from[0], n.y - from[1]) > 3000) return [n.x, n.y];  // looped round: jump
+    return [from[0] + (n.x - from[0]) * k, from[1] + (n.y - from[1]) * k];
   }
 
   px(xy) {
@@ -58,7 +74,7 @@ export class NetMap {
   render() {
     const t = this.t;
     if (!t || !this.map) return;
-    const pos = Object.fromEntries(t.nodes.map(n => [n.id, this.px([n.x, n.y])]));
+    const pos = Object.fromEntries(t.nodes.map(n => [n.id, this.px(this.at(n.id))]));
     const out = [];
     for (const n of t.nodes) if (n.route) {  // the road each vehicle drives
       const pts = [...n.route, n.route[0]].map(p => this.px(p).join(",")).join(" ");
@@ -69,7 +85,21 @@ export class NetMap {
       out.push(el("line", { x1: pos[a][0], y1: pos[a][1], x2: pos[b][0], y2: pos[b][1], class: "link" }));
     }
     const places = t.nodes.filter(n => n.role === "hub" || n.role === "site");
-    for (const n of [...t.nodes.filter(n => !places.includes(n)), ...places]) out.push(this.node(n, pos[n.id]));
+    // vehicles parked on the same spot share one label instead of stacking
+    const groupOf = {}, clusters = [];
+    for (const n of t.nodes) {
+      if (n.role !== "mule" || !n.up || n.hostile) continue;
+      const near = clusters.find(c => Math.hypot(pos[c[0].id][0] - pos[n.id][0], pos[c[0].id][1] - pos[n.id][1]) < 16);
+      if (near) near.push(n); else clusters.push([n]);
+      groupOf[n.id] = near ?? clusters.at(-1);
+    }
+    const label = n => {
+      const g = groupOf[n.id];
+      if (!g || g.length < 2) return undefined;
+      const total = g.reduce((s, m) => s + m.shards, 0);
+      return g[0] === n ? `${g.length} vehicles${total ? `, carrying ${total}` : ""}` : "";
+    };
+    for (const n of [...t.nodes.filter(n => !places.includes(n)), ...places]) out.push(this.node(n, pos[n.id], label(n)));
     out.push(...this.selection(pos), ...this.pieces(pos));
     this.svg.replaceChildren(...out);
   }
@@ -104,7 +134,7 @@ export class NetMap {
     return out;
   }
 
-  node(n, [x, y]) {
+  node(n, [x, y], groupLabel) {
     const g = document.createElementNS(NS, "g");
     const place = n.role === "hub" || n.role === "site";
     let shape;
@@ -130,7 +160,8 @@ export class NetMap {
     };
     if (place) label(pretty(n.id), n.role === "hub" ? "name hub" : "name", 4.5);
     else if (n.hostile && n.up) label(pretty(n.id), "minor", 4.5);
-    if (n.shards) label(place ? `${n.shards} waiting` : `carrying ${n.shards}`, "load", place ? 20 : 4.5);
+    if (groupLabel !== undefined) { if (groupLabel) label(groupLabel, "load", 4.5); }
+    else if (n.shards) label(place ? `${n.shards} waiting` : `carrying ${n.shards}`, "load", place ? 20 : 4.5);
     if (!n.up) label("off", "minor", place ? 20 : 4.5);
     return g;
   }
