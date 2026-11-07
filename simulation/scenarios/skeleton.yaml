@@ -19,3 +19,8 @@ messages:
     to: hospital
     priority: ROUTINE
     text: "Referral: 54F, 3 days fever, suspected malaria, RDT positive."
+  - at_s: 1800
+    from: hospital
+    to: clinic
+    priority: URGENT
+    text: "Accepted. Start ACT, transfer if no improvement in 24 h."

@@ -13,6 +13,9 @@ def test_referral_reaches_hospital_intact(tmp_path: Path) -> None:
     result = run(scenario, seed=1, data_dir=tmp_path)
     inbox = result.endpoints["hospital"].inbox
     assert [m.content.decode() for m in inbox] == [scenario.messages[0].text]
+    assert [m.content.decode() for m in result.endpoints["clinic"].inbox] == [
+        scenario.messages[1].text
+    ]
     assert inbox[0].sender == "clinic"  # inner signature resolved through the signed directory
 
 
@@ -24,14 +27,15 @@ def test_same_seed_same_run(tmp_path: Path) -> None:
     assert a.log == b.log
 
 
-@pytest.mark.req("REQ-PROTO-06", "REQ-SAFE-01")
+@pytest.mark.req("REQ-PROTO-06", "REQ-PROTO-10", "REQ-SAFE-01")
 def test_delivery_ack_returns_to_origin_and_purges_everywhere(tmp_path: Path) -> None:
     result = run(load_scenario("skeleton"), seed=1, data_dir=tmp_path)
-    [sent] = result.endpoints["clinic"].sent.values()
-    assert sent.status.value == "delivered"
+    for name in ("clinic", "hospital"):
+        [sent] = result.endpoints[name].sent.values()
+        assert sent.status.value == "delivered", name
     for node in result.world.nodes.values():
         assert node.core.shards == {}, node.id
-        assert len(node.core.acks) == 1, node.id
+        assert len(node.core.acks) == 2, node.id
 
 
 @pytest.mark.req("REQ-SEC-03")
