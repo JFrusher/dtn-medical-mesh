@@ -2,7 +2,7 @@ from dataclasses import replace
 
 import pytest
 
-from node.events import Delete, Delivered, EndpointAck
+from node.events import Delete, Delivered, EndpointAck, SendFrame
 from node.pki import Role
 from validation.node.helpers import (
     ack_msg,
@@ -28,8 +28,8 @@ def test_ack_purges_spreads_and_blocks_resurrection() -> None:
     ack = signed_ack(bid)
     out = frame(mule, "H", ack_msg(ack))
     assert {a.key for a in out if isinstance(a, Delete)} == {s.shard_id for s in shards}
-    forwarded = [f for f in frames(out) if f["t"] == "ack"]
-    assert forwarded == [ack_msg(ack)]  # passed on to the other open contact
+    to_other = [a for a in out if isinstance(a, SendFrame) and a.peer_id == "OTHER"]
+    assert [f for f in frames(to_other) if f["t"] == "ack"] == [ack_msg(ack)]  # passed on
     assert frame(mule, "X", shard_msg(shards[0])) == []
     assert mule.shards == {}
 

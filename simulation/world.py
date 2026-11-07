@@ -134,6 +134,9 @@ class World:
                 pass
 
     def _transmit(self, src: str, action: SendFrame) -> None:
+        if action.radio is RadioKind.LORA:
+            self._broadcast_lora(src, action)
+            return
         pair = frozenset((src, action.peer_id))
 
         def arrive() -> None:
@@ -145,6 +148,26 @@ class World:
             )
 
         self.scheduler.after(0, arrive)
+
+    def _broadcast_lora(self, src: str, action: SendFrame) -> None:
+        """v0: every node within LoRa range hears it. Airtime and duty cycle come in P5.S03."""
+        here = self.position(src)
+        for node_id in sorted(self.nodes):
+            if (
+                node_id != src
+                and math.dist(here, self.position(node_id)) <= self.radio.lora_range_m
+            ):
+                node = self.nodes[node_id]
+                self.scheduler.after(
+                    0,
+                    partial(
+                        self.dispatch,
+                        node,
+                        partial(
+                            FrameReceived, peer_id=src, radio=RadioKind.LORA, frame=action.frame
+                        ),
+                    ),
+                )
 
     def _tick(self) -> None:
         for a, b in combinations(sorted(self.nodes), 2):

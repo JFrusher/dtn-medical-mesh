@@ -6,3 +6,4 @@ from dataclasses import dataclass
 @dataclass(frozen=True)
 class RadioParams:
     wifi_range_m: float = 100.0
+    lora_range_m: float = 2000.0

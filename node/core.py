@@ -81,6 +81,9 @@ T_LEDGER = "ledger"  # receipts this node issued, hash-chained, keyed by sequenc
 T_OUTBOX = "receipt_outbox"  # issued receipts not yet handed to their sender
 T_RECEIPTS_IN = "receipts_in"  # receipts others gave this node, for audit
 RECEIPT_BATCH_S = 0.5
+LORA_MAX_FRAME = 200  # one LoRa frame (§8.10)
+LORA_KINDS = frozenset({"ack", "receipt", "doc"})  # control only: never shards or summaries
+BROADCAST = "*"
 SWEEP_EVERY_S = 60.0  # purge expired shards at most this often, on the next event
 SUMMARY_MAX_SKEW_S = 3600
 EXACT_AFTER_S = 2.0  # send exact lists if the link outlives the first transfer burst (§8.3)
@@ -211,6 +214,8 @@ class NodeCore:
                 return self._issue_receipt(event.peer_id)  # anything owed goes to the outbox
             case FrameReceived(radio=RadioKind.WIFI):
                 return self._on_frame(event.peer_id, event.frame)
+            case FrameReceived(radio=RadioKind.LORA):
+                return self._on_lora(event.peer_id, event.frame)
             case Inject():
                 return self._inject([decode_shard(s) for s in event.shards])
             case EndpointAck():
@@ -231,6 +236,24 @@ class NodeCore:
                 return []
 
     # --- frames from peers (untrusted) -------------------------------------
+
+    def _on_lora(self, peer_id: str, frame: bytes) -> list[Action]:
+        """LoRa carries only small, self-verifying control messages (REQ-PROTO-09)."""
+        try:
+            kind = cbor2.loads(frame)["t"] if len(frame) <= LORA_MAX_FRAME else None
+        except (KeyError, TypeError, cbor2.CBORDecodeError):
+            kind = None
+        if kind not in LORA_KINDS:
+            self.dropped["lora_rejected"] += 1
+            return []
+        return self._on_frame(peer_id, frame)
+
+    def _lora(self, msg: Mapping[str, object]) -> list[Action]:
+        """Broadcast a control message over LoRa if it fits in one frame."""
+        frame = cbor2.dumps(msg)
+        if len(frame) > LORA_MAX_FRAME:
+            return []
+        return [SendFrame(peer_id=BROADCAST, radio=RadioKind.LORA, frame=frame)]
 
     def _on_frame(self, peer_id: str, frame: bytes) -> list[Action]:
         try:
@@ -456,6 +479,7 @@ class NodeCore:
         if doc.kind == "crl":
             self.revoked = self._revoked()
             self._verified_headers.clear()  # re-check every injector against the new list
+            actions += self._lora({"t": "doc", "d": encode_doc(doc)})
         elif self.config.sa is not None and issuer is not None:
             actions.append(DirectoryUpdate(doc=encode_doc(doc), issuer=encode_cert(issuer)))
         for peer in sorted(self.peer_has):
@@ -581,7 +605,8 @@ class NodeCore:
         if sender in self.peer_bloom:
             return actions + [self._send(sender, {"t": "receipt", "r": encoded})]
         self.outbox[self.ledger_head] = r
-        return actions + [Store(table=T_OUTBOX, key=self.ledger_head, value=encoded)]
+        actions.append(Store(table=T_OUTBOX, key=self.ledger_head, value=encoded))
+        return actions + self._lora({"t": "receipt", "r": encoded})
 
     def _pay_receipts_owed(self, peer_id: str) -> list[Action]:
         """Hand over receipts kept since an earlier contact dropped. If one is lost again the
@@ -753,6 +778,7 @@ class NodeCore:
         if bid in self.origin:
             self.origin.discard(bid)
             actions += [Delete(table=T_ORIGIN, key=bid), Delivered(bundle_id=bid)]
+        actions += self._lora({"t": "ack", "a": encode_ack(ack)})
         for peer in sorted(self.peer_has):
             actions += self._offer(peer)
         return actions

@@ -55,7 +55,7 @@ def records(*bundles: list[Shard]) -> dict[str, dict[bytes, bytes]]:
     return {"shards": {s.shard_id: cbor2.dumps([encode_shard(s), 0]) for b in bundles for s in b}}
 
 
-def frames(actions: list[Action]) -> list[dict[str, object]]:
+def frames(actions: Sequence[Action]) -> list[dict[str, object]]:
     return [cbor2.loads(a.frame) for a in actions if isinstance(a, SendFrame)]
 
 
