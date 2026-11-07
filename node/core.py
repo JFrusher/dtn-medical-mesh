@@ -12,11 +12,14 @@ import cbor2
 
 from node import erasure, merkle
 from node.bundle import (
+    Ack,
     Bundle,
     FormatError,
     Header,
     Shard,
+    decode_ack,
     decode_shard,
+    encode_ack,
     encode_bundle,
     encode_shard,
 )
@@ -84,7 +87,7 @@ class NodeCore:
         self.shards: dict[bytes, Shard] = {
             k: decode_shard(v) for k, v in records.get(T_SHARDS, {}).items()
         }
-        self.acks: set[bytes] = set(records.get(T_ACKS, {}))
+        self.acks: dict[bytes, Ack] = {k: decode_ack(v) for k, v in records.get(T_ACKS, {}).items()}
         self.origin: set[bytes] = set(records.get(T_ORIGIN, {}))
         self.delivered: set[bytes] = set(records.get(T_DELIVERED, {}))
         self.used_bytes = sum(len(s.data) for s in self.shards.values())
@@ -108,7 +111,7 @@ class NodeCore:
             case Inject():
                 return self._inject([decode_shard(s) for s in event.shards])
             case EndpointAck():
-                return self._on_ack(event.bundle_id, source=None)
+                return self._endpoint_ack(event.bundle_id)
             case _:
                 return []
 
@@ -131,7 +134,7 @@ class NodeCore:
             if kind == "shard":
                 return self._accept(decode_shard(_bytes(msg["s"])), source=peer_id)
             if kind == "ack":
-                return self._on_ack(_bytes(msg["id"]), source=peer_id)
+                return self._on_ack(decode_ack(_bytes(msg["a"])), source=peer_id)
             raise FormatError(f"unknown frame type {kind!r}")
         except (FormatError, KeyError, TypeError, cbor2.CBORDecodeError):
             self.dropped["malformed"] += 1
@@ -175,9 +178,10 @@ class NodeCore:
     def _offer(self, peer_id: str) -> list[Action]:
         """Send a connected peer every ACK and shard it lacks, most important first."""
         known_acks = self.peer_acks[peer_id]
-        new_acks = sorted(self.acks - known_acks)
-        known_acks.update(new_acks)
-        actions: list[Action] = [self._send(peer_id, {"t": "ack", "id": a}) for a in new_acks]
+        new_acks = [self.acks[a] for a in sorted(self.acks.keys() - known_acks)]
+        known_acks.update(a.bundle_id for a in new_acks)
+        actions = self._certs_for(peer_id, {a.signer for a in new_acks})
+        actions += [self._send(peer_id, {"t": "ack", "a": encode_ack(a)}) for a in new_acks]
         has = self.peer_has[peer_id]
         missing = [s for i, s in self.shards.items() if i not in has]
         missing.sort(key=lambda s: (s.header.priority, s.header.created, s.shard_id))
@@ -241,7 +245,7 @@ class NodeCore:
         header = replace(shards[0].header, injector=self.identity.cert.cert_id, sig=b"")
         header = replace(header, sig=self.identity.sign(header.signing_bytes()))
         shards = [replace(s, header=header) for s in shards]
-        if bid in self.acks or any(s.shard_id in self.shards for s in shards):
+        if self._acked(shards[0].header) or any(s.shard_id in self.shards for s in shards):
             return []
         actions = self._make_room(shards[0], sum(len(s.data) for s in shards))
         if actions is None:
@@ -256,7 +260,7 @@ class NodeCore:
         sid, bid = shard.shard_id, shard.header.bundle_id
         if source in self.peer_has:
             self.peer_has[source].add(sid)
-        if sid in self.shards or bid in self.acks:
+        if sid in self.shards or self._acked(shard.header):
             return []
         if not _intact(shard):
             self.dropped["corrupt"] += 1
@@ -332,13 +336,41 @@ class NodeCore:
 
     # --- delivery ACKs ------------------------------------------------------
 
-    def _on_ack(self, bid: bytes, source: str | None) -> list[Action]:
+    def _acked(self, header: Header) -> bool:
+        ack = self.acks.get(header.bundle_id)
+        return ack is not None and ack.dst_sa == header.dst_sa
+
+    def _endpoint_ack(self, bid: bytes) -> list[Action]:
+        held = self._shards_of(bid)
+        if not held or self.config.sa != held[0].header.dst_sa:
+            raise ValueError("endpoint acknowledged a bundle this node did not deliver")
+        ack = Ack(bid, held[0].header.dst_sa, self.identity.cert.cert_id)
+        return self._on_ack(replace(ack, sig=self.identity.sign(ack.signing_bytes())), None)
+
+    def _ack_authentic(self, ack: Ack) -> bool:
+        """Signed by a valid site/hub of the destination SA it names (REQ-PROTO-06)."""
+        cert = self.certs.get(ack.signer)
+        held = self._shards_of(ack.bundle_id)
+        return (
+            cert is not None
+            and cert.role in (Role.SITE, Role.HUB)
+            and cert.sa == ack.dst_sa
+            and (not held or held[0].header.dst_sa == ack.dst_sa)
+            and self._valid(cert)
+            and verify_p256(cert.pubkey, ack.signing_bytes(), ack.sig)
+        )
+
+    def _on_ack(self, ack: Ack, source: str | None) -> list[Action]:
+        bid = ack.bundle_id
         if source in self.peer_acks:
             self.peer_acks[source].add(bid)
         if bid in self.acks:
             return []
-        self.acks.add(bid)
-        actions: list[Action] = [Store(table=T_ACKS, key=bid, value=b"")]
+        if not self._ack_authentic(ack):
+            self.dropped["bad_ack"] += 1
+            return []
+        self.acks[bid] = ack
+        actions: list[Action] = [Store(table=T_ACKS, key=bid, value=encode_ack(ack))]
         actions += [self._remove_shard(s) for s in self._shards_of(bid)]
         if bid in self.origin:
             self.origin.discard(bid)

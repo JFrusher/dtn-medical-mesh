@@ -147,3 +147,35 @@ def decode_shard(data: bytes) -> Shard:
         return Shard(header, index, _typed(obj["d"], bytes), proof)
     except (KeyError, TypeError, ValueError, cbor2.CBORDecodeError) as e:
         raise FormatError(str(e)) from e
+
+
+@dataclass(frozen=True)
+class Ack:
+    """Delivery ACK, signed by a site or hub in the bundle's destination SA (spec §8.7)."""
+
+    bundle_id: bytes
+    dst_sa: str
+    signer: str  # cert ID
+    sig: bytes = b""
+
+    def signing_bytes(self) -> bytes:
+        return b"dtn-medical-mesh/v1/ack" + cbor2.dumps([self.bundle_id, self.dst_sa, self.signer])
+
+
+def encode_ack(ack: Ack) -> bytes:
+    return cbor2.dumps(asdict(ack))
+
+
+def decode_ack(data: bytes) -> Ack:
+    try:
+        f = cbor2.loads(data)
+        if set(f) != set(Ack.__dataclass_fields__):
+            raise FormatError("ACK fields do not match")
+        return Ack(
+            _typed(f["bundle_id"], bytes),
+            _typed(f["dst_sa"], str),
+            _typed(f["signer"], str),
+            _typed(f["sig"], bytes),
+        )
+    except (TypeError, ValueError, cbor2.CBORDecodeError) as e:
+        raise FormatError(str(e)) from e

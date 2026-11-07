@@ -8,7 +8,7 @@ from functools import cache
 import cbor2
 
 from node import erasure, merkle
-from node.bundle import Header, Priority, Shard, encode_shard, make_bundle_id
+from node.bundle import Ack, Header, Priority, Shard, encode_ack, encode_shard, make_bundle_id
 from node.config import PRIORITY_CLASSES
 from node.core import T_CERTS, NodeConfig, NodeCore, _summary_signing_bytes
 from node.events import Action, ContactUp, FrameReceived, Inject, SendFrame
@@ -134,3 +134,14 @@ def make_node(
 
 
 CLINIC = identity("C", Role.SITE, "SA_C")  # the test site that signs make_shards() headers
+
+
+def signed_ack(bundle_id: bytes, dst_sa: str = "SA_H", signer: Identity | None = None) -> Ack:
+    """An ACK signed by the test hub H (SA_H) unless another signer is given."""
+    me = signer or identity("H", Role.HUB, "SA_H")
+    ack = Ack(bundle_id, dst_sa, me.cert.cert_id)
+    return replace(ack, sig=me.sign(ack.signing_bytes()))
+
+
+def ack_msg(ack: Ack) -> dict[str, object]:
+    return {"t": "ack", "a": encode_ack(ack)}
