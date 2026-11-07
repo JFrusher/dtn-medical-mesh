@@ -39,7 +39,9 @@ from node.events import (
     PublishDirectory,
     Revoke,
     SendFrame,
+    SetTimer,
     Store,
+    Timer,
 )
 from node.hw.radio import RadioKind
 from node.pki import (
@@ -68,6 +70,7 @@ T_CERTS = "certs"
 T_DOCS = "docs"  # hub-signed documents: revocation lists and endpoint directories
 T_IDENTITY = "identity"  # renewed certificate, replacing the provisioned one
 SUMMARY_MAX_SKEW_S = 3600
+EXACT_AFTER_S = 2.0  # send exact lists if the link outlives the first transfer burst (§8.3)
 _SUMMARY_CONTEXT = b"dtn-medical-mesh/v1/summary"
 
 
@@ -114,6 +117,7 @@ class NodeCore:
         }
         self.revoked = self._revoked()
         self._verified_headers: set[bytes] = set()
+        self._mono = 0.0  # monotonic time of the event being handled
         self._injected_at: dict[str, deque[float]] = defaultdict(deque)  # per injector cert
         self.shards: dict[bytes, Shard] = {
             k: decode_shard(v) for k, v in records.get(T_SHARDS, {}).items()
@@ -132,6 +136,7 @@ class NodeCore:
         self.peer_docs: dict[str, dict[str, int]] = {}
 
     def handle(self, event: Event) -> list[Action]:
+        self._mono = event.mono
         if event.wall is not None:
             self.clock_s = max(self.clock_s, event.wall)
         match event:
@@ -153,6 +158,12 @@ class NodeCore:
                 return self._inject([decode_shard(s) for s in event.shards])
             case EndpointAck():
                 return self._endpoint_ack(event.bundle_id)
+            case Timer() if event.name.startswith("exact:"):
+                peer_id = event.name.removeprefix("exact:")
+                if peer_id not in self.peer_bloom:
+                    return []  # contact already over
+                exact = {"t": "exact", "ids": sorted(self.shards), "acks": sorted(self.acks)}
+                return [self._send(peer_id, exact)]
             case Revoke():
                 return self._revoke(event.subject)
             case PublishDirectory():
@@ -179,7 +190,15 @@ class NodeCore:
                 if not isinstance(docs, dict):
                     raise FormatError("summary docs must be a map")
                 self.peer_docs[peer_id] = {str(k): int(v) for k, v in docs.items()}
-                return self._renew(peer_id, peer_cert) + self._offer(peer_id)
+                follow_up = SetTimer(name=f"exact:{peer_id}", at_mono=self._mono + EXACT_AFTER_S)
+                return [follow_up, *self._renew(peer_id, peer_cert), *self._offer(peer_id)]
+            if kind == "exact":
+                if peer_id not in self.peer_bloom:
+                    return []  # only from a peer whose summary we accepted
+                self.peer_has[peer_id].update(_bytes(i) for i in msg["ids"])
+                self.peer_acks[peer_id].update(_bytes(i) for i in msg["acks"])
+                self.peer_bloom[peer_id] = Bloom.of([])  # exact knowledge replaces the filter
+                return self._offer(peer_id)
             if kind == "doc":
                 return self._on_doc(decode_doc(_bytes(msg["d"])))
             if kind == "renew":
