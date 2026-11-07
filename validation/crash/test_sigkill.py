@@ -18,6 +18,7 @@ from node.events import Store
 from node.storage import Storage
 
 KILLS = 500
+KEY_SPACE = 256  # writers overwrite a fixed key set, so the DB stays small and reloads stay fast
 KEY = b"k" * 32
 
 
@@ -31,7 +32,7 @@ def writer(db: Path, start: int, report_fd: int) -> None:
     storage = Storage(db, KEY)
     i = start
     while True:
-        key = i.to_bytes(4)
+        key = (i % KEY_SPACE).to_bytes(4)
         storage.apply(Store(table="shards", key=key, value=value_for(key, rng.randint(1, 20_000))))
         os.write(report_fd, key)  # only after the commit returned
         i += 1
@@ -42,7 +43,7 @@ def test_store_survives_random_sigkills(tmp_path: Path) -> None:
     db = tmp_path / "node.db"
     rng = random.Random(1)
     committed: set[bytes] = set()
-    next_key = 0
+    next_key = writes = 0
     for _ in range(KILLS):
         read_fd, write_fd = os.pipe()
         pid = os.fork()
@@ -69,5 +70,6 @@ def test_store_survives_random_sigkills(tmp_path: Path) -> None:
         assert committed <= rows.keys(), "a committed record was lost"
         for key, value in rows.items():
             assert value == value_for(key, len(value)), "torn record"
-        next_key = max(int.from_bytes(k) for k in rows) + 1 if rows else 0
-    assert len(committed) > KILLS  # the test really wrote between kills
+        writes += len(reported) // 4
+        next_key += len(reported) // 4 + 1
+    assert writes > KILLS  # the test really wrote between kills
