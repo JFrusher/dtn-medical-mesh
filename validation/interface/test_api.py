@@ -78,3 +78,17 @@ def test_controls_and_live_stream(sim: LiveSim) -> None:
     assert sim.now == before and sim.speed == 600
     with api.websocket_connect("/ws") as ws:
         assert ws.receive_json()["paused"] is True
+
+
+@pytest.mark.req("REQ-PROTO-04")
+def test_journey_follows_custody_receipts(sim: LiveSim) -> None:
+    api = TestClient(create_app(sim))
+    for _ in range(40):  # 40 min of virtual time: the referral reaches the hospital
+        sim.advance(1)
+    [m] = [m for m in api.get("/api/endpoints/clinic/messages").json() if m["direction"] == "out"]
+    j = api.get(f"/api/journey/{m['id']}").json()
+    assert (j["from_node"], j["to_node"]) == ("CLINIC_01", "HOSPITAL")
+    path = [(h["from"], h["to"]) for h in j["hops"]]
+    assert ("CLINIC_01", "AMBULANCE_01") in path and ("AMBULANCE_01", "HOSPITAL") in path
+    assert j["opened"] and j["k"] == 4 and j["total"] == 6
+    assert api.get("/api/journey/00").status_code == 404

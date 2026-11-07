@@ -18,6 +18,7 @@ from endpoint.state import Status
 from interface.app import MessageIn, create_app
 from interface.telemetry import Telemetry
 from node.bundle import Priority
+from node.config import PRIORITY_CLASSES
 from node.core import NodeCore
 from simulation.mobility import Route
 from simulation.runner import RunResult, build
@@ -76,6 +77,17 @@ class LiveSim:
             "nodes": nodes,  # type: ignore[typeddict-item]
             "links": sorted(tuple(sorted(p)) for p in w.contacts),  # type: ignore[misc]
             "lora": sorted({src for t, src in w.lora_log if t > self.now - 5 * self.speed}),
+            "transfers": [
+                {
+                    "t": t,
+                    "from": r.sender,
+                    "to": to,
+                    "pieces": len(r.shard_ids),
+                    "bundles": sorted({sid[:32].hex() for sid in r.shard_ids}),
+                }
+                for t, to, r in w.receipts
+                if t > self.now - 3 * self.speed
+            ],
             "events": self.r.log[-12:],
             "stats": {
                 "sent": len(statuses),
@@ -100,6 +112,53 @@ class LiveSim:
             }
             for e in self.r.endpoints.values()
         ]
+
+    def journey(self, bundle_hex: str) -> dict[str, Any]:
+        """Where one message has been and where its pieces are now, from custody receipts."""
+        bid = bytes.fromhex(bundle_hex)
+        origin = next((e for e in self.r.endpoints.values() if bid in e.sent), None)
+        if origin is None:
+            raise KeyError(bundle_hex)
+        out, (content, prio, sent_at) = origin.sent[bid], origin.sent_content[bid]
+        hops = [
+            {
+                "t": t,
+                "at": _clock(t),
+                "from": r.sender,
+                "to": to,
+                "pieces": sum(1 for s in r.shard_ids if s[:32] == bid),
+            }
+            for t, to, r in self.r.world.receipts
+            if any(s[:32] == bid for s in r.shard_ids)
+        ]
+        holders = {
+            n.id: count
+            for n in self.r.world.nodes.values()
+            if n.up
+            and (count := sum(1 for s in n.core.shards.values() if s.header.bundle_id == bid))
+        }
+        cls = PRIORITY_CLASSES[prio]
+        opened = next(
+            (r.at_s for e in self.r.endpoints.values() for r in e.inbox if r.bundle_id == bid), None
+        )
+        acked = out.delivered_ms / 1000 - SIM_EPOCH if out.delivered_ms else None
+        return {
+            "id": bundle_hex,
+            "summary": _decode(content).summary(),
+            "priority": prio.name,
+            "from": origin.name,
+            "from_node": origin.site.id,
+            "to": out.recipient,
+            "to_node": self.r.endpoints[out.recipient].site.id,
+            "status": origin.status(bid).value,
+            "sent": _clock(sent_at),
+            "opened": _clock(opened) if opened is not None else None,
+            "acked": _clock(acked) if acked is not None else None,
+            "k": cls.k,
+            "total": cls.k + cls.m,
+            "hops": hops,
+            "holders": holders,
+        }
 
     def messages(self, endpoint: str) -> list[dict[str, Any]]:
         e = self.r.endpoints[endpoint]

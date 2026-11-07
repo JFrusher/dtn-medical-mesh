@@ -3,7 +3,7 @@
   "title": "dtn-medical-mesh telemetry",
   "description": "One snapshot of the mesh for the live map (spec §10.3). Same shape from the emulator and from field TELEMETRY bundles.",
   "type": "object",
-  "required": ["t", "geo", "speed", "paused", "nodes", "links", "lora", "events", "stats"],
+  "required": ["t", "geo", "speed", "paused", "nodes", "links", "lora", "transfers", "events", "stats"],
   "properties": {
     "t": {"type": "number", "description": "seconds since the scenario started"},
     "geo": {"type": ["array", "null"], "description": "[lat, lon] origin of x/y metres; null = schematic plane"},
@@ -31,6 +31,7 @@
     },
     "links": {"type": "array", "items": {"type": "array", "items": {"type": "string"}, "minItems": 2, "maxItems": 2}},
     "lora": {"type": "array", "items": {"type": "string"}},
+    "transfers": {"type": "array", "description": "custody receipts in the last few seconds", "items": {"type": "object", "required": ["t", "from", "to", "pieces", "bundles"]}},
     "events": {"type": "array", "items": {"type": "string"}, "description": "recent log lines, each starting with [hh:mm:ss]"},
     "stats": {
       "type": "object",

@@ -48,6 +48,7 @@ class Backend(Protocol):
     def telemetry(self) -> Telemetry: ...
     def endpoints(self) -> list[dict[str, Any]]: ...
     def messages(self, endpoint: str) -> list[dict[str, Any]]: ...
+    def journey(self, bundle_hex: str) -> dict[str, Any]: ...
     def send(
         self, endpoint: str, msg: MessageIn, attachments: list[tuple[str, str, bytes]]
     ) -> str: ...
@@ -98,6 +99,13 @@ def create_app(backend: Backend) -> FastAPI:
             return {"id": backend.send(_known(backend, name), msg, files)}
         except ValueError as e:  # unknown recipient, over 32 MB, bad vital: tell the user
             raise HTTPException(status_code=422, detail=str(e)) from e
+
+    @app.get("/api/journey/{bundle_id}")
+    async def journey(bundle_id: str) -> dict[str, Any]:
+        try:
+            return backend.journey(bundle_id)
+        except (KeyError, ValueError) as e:
+            raise HTTPException(status_code=404, detail=f"no message {bundle_id!r}") from e
 
     @app.post("/api/control")
     async def control(c: ControlIn) -> dict[str, str]:

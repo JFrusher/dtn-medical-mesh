@@ -18,6 +18,12 @@ class NodeView(TypedDict):
     hostile: bool  # emulator only: an attacker injected by the scenario
 
 
+# functional form because "from" is a Python keyword; bundles are bundle IDs (hex)
+Transfer = TypedDict(
+    "Transfer", {"t": float, "from": str, "to": str, "pieces": int, "bundles": list[str]}
+)
+
+
 class Stats(TypedDict):
     sent: int
     delivered: int
@@ -34,5 +40,6 @@ class Telemetry(TypedDict):
     nodes: list[NodeView]
     links: list[tuple[str, str]]
     lora: list[str]  # nodes that broadcast on LoRa in the last few seconds
+    transfers: list[Transfer]  # custody receipts in the last few seconds: pieces that just moved
     events: list[str]  # recent log lines, each starting with its [hh:mm:ss] time
     stats: Stats

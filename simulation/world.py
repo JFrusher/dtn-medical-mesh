@@ -8,7 +8,8 @@ from functools import partial
 from itertools import combinations
 from pathlib import Path
 
-from node.core import NodeConfig, NodeCore
+from node.bundle import Receipt, decode_receipt
+from node.core import T_LEDGER, NodeConfig, NodeCore
 from node.events import (
     Action,
     ContactDown,
@@ -111,6 +112,9 @@ class World:
         self.peak_bytes: dict[str, int] = defaultdict(int)
         self.lora_over_budget = 0
         self.lora_log: list[tuple[float, str]] = []  # (time, sender) of each LoRa broadcast
+        # Custody receipts as nodes commit them: (time, receiver node, receipt). The same signed
+        # records an auditor could collect from real nodes; the map and journey view use them.
+        self.receipts: list[tuple[float, str, Receipt]] = []
         self._duty: dict[str, DutyCycle] = defaultdict(DutyCycle)
         self.log: LogFn = log or (lambda t, msg: None)
 
@@ -199,6 +203,10 @@ class World:
             case Store() | Delete():
                 node.storage.apply(action)
                 self.peak_bytes[node.id] = max(self.peak_bytes[node.id], node.core.used_bytes)
+                if isinstance(action, Store) and action.table == T_LEDGER:
+                    self.receipts.append(
+                        (self.scheduler.now, node.id, decode_receipt(action.value))
+                    )
             case SendFrame():
                 self._transmit(node.id, action)
             case Deliver():

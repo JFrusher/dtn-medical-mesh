@@ -57,3 +57,8 @@ python_version = "3.11"
 # shortcut: these ship no type stubs; wrap them in typed modules (node/erasure.py, node/storage.py).
 module = ["zfec", "sqlcipher3", "sqlcipher3.*"]
 ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# shortcut: pmtiles ships without type hints; only the one-off map build script calls it.
+module = ["tools.*"]
+disallow_untyped_calls = false

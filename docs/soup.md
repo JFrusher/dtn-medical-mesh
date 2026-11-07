@@ -13,3 +13,15 @@ Third-party runtime software (IEC 62304 §8.1.2). Versions are the locked ones i
 | uvicorn | 0.54.0 | ASGI server for the local UI | Low | — |
 | websockets | 17.4 | Live map stream | Low: display only | — |
 | pyyaml | 6.0.3 | Emulator scenario files | None in the field (simulation only) | Unsafe loading: `safe_load` only |
+
+## Vendored front-end code and data
+
+Shipped in `interface/static/` so the demo works with no internet. Rebuilt by `tools/build_arusha.py`.
+
+| Component | Version | Licence | Purpose |
+|---|---|---|---|
+| MapLibre GL JS | v5.24.0 | BSD-3-Clause | Interactive street map |
+| pmtiles (JS) | v4.5.0 | BSD-3-Clause | Reads the bundled map file |
+| @protomaps/basemaps | v5.7.2 | BSD-3-Clause | Map styling |
+| Arusha map extract | Protomaps build 2026-11-07 | ODbL, © OpenStreetMap contributors | Streets, places, water |
+| Noto Sans glyphs | basemaps-assets | SIL OFL 1.1 | Map labels |
