@@ -44,25 +44,65 @@ button, select, textarea, input { font: inherit; color: inherit; }
 
 /* stage: the map, with drawers over it */
 .stage { position: relative; overflow: hidden; }
-#map { position: absolute; inset: 0; width: 100%; height: 100%; }
-#map .road { fill: none; stroke: var(--road); stroke-linecap: round; stroke-linejoin: round; }
-#map .link { stroke: var(--accent); stroke-linecap: round; }
-#map .lora { fill: none; stroke: var(--accent); opacity: .35; }
-#map .place { fill: var(--ink); }
-#map .carrier { fill: var(--accent); }
-#map .relay { fill: var(--surface); stroke: var(--muted); }
-#map .off { fill: var(--rule); stroke: var(--muted); }
-#map .hostile { fill: var(--surface); stroke: var(--alarm); }
-#map .name { fill: var(--ink); paint-order: stroke; stroke: var(--paper); stroke-linejoin: round; }
-#map .minor { fill: var(--muted); }
-#map .load { fill: var(--accent); font-weight: 700; paint-order: stroke; stroke: var(--paper); }
+#map { position: absolute; inset: 0; }
+#overlay { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 1; }
+#overlay text { font-size: 12px; paint-order: stroke; stroke: var(--paper); stroke-width: 3.5px; stroke-linejoin: round; }
+#overlay .road { fill: none; stroke: var(--accent); stroke-width: 2.5; stroke-opacity: .22; stroke-linecap: round; stroke-linejoin: round; }
+#overlay .link { stroke: var(--accent); stroke-width: 3; stroke-linecap: round; }
+#overlay .lora { fill: none; stroke: var(--accent); stroke-width: 1.5; opacity: .35; }
+#overlay .place { fill: var(--ink); }
+#overlay .carrier { fill: var(--accent); stroke: var(--surface); stroke-width: 1.5; }
+#overlay .relay { fill: var(--surface); stroke: var(--muted); stroke-width: 1.5; }
+#overlay .off { fill: var(--rule); stroke: var(--muted); stroke-width: 1.5; }
+#overlay .hostile { fill: var(--surface); stroke: var(--alarm); stroke-width: 2; }
+#overlay .name { fill: var(--ink); font-size: 13px; font-weight: 600; }
+#overlay .name.hub { font-size: 15px; }
+#overlay .minor { fill: var(--muted); }
+#overlay .load { fill: var(--accent); font-weight: 700; }
+#overlay .piece { fill: var(--accent); stroke: var(--surface); stroke-width: 1; }
+#overlay .piece.mine, #overlay .holder-label { fill: var(--transit); }
+#overlay .holder { fill: none; stroke: var(--transit); stroke-width: 2; }
+#overlay .holder-label { font-weight: 700; }
+.maplibregl-ctrl-attrib { font: 11px var(--font) !important; }
 
-.open { position: absolute; top: 16px; z-index: 2; border: 1px solid var(--rule); background: var(--surface);
+.following { position: absolute; top: 16px; left: 50%; transform: translateX(-50%); z-index: 3; display: flex; gap: 10px; align-items: center;
+  background: var(--surface); border: 1px solid var(--rule); border-radius: 6px; padding: 6px 8px 6px 12px; color: var(--muted); }
+.following[hidden] { display: none; }
+.following b { color: var(--transit); font-weight: 600; }
+.following button { border: 0; background: var(--paper); border-radius: 5px; padding: 2px 9px; cursor: pointer; }
+
+/* view switch */
+.views { display: flex; gap: 2px; padding: 2px; background: var(--paper); border-radius: 7px; }
+.views button { border: 0; background: none; padding: 4px 14px; border-radius: 5px; color: var(--muted); cursor: pointer; }
+.views button[aria-selected="true"] { background: var(--surface); color: var(--ink); font-weight: 600; box-shadow: 0 0 0 1px var(--rule); }
+
+/* journey */
+.journey { position: absolute; inset: 0; z-index: 2; overflow-y: auto; background: var(--paper); padding: 28px 32px; }
+.journey[hidden] { display: none; }
+.journey-head { display: flex; align-items: center; gap: 12px; max-width: 900px; margin: 0 auto 24px; }
+.journey-head label { font-weight: 600; }
+.journey-head select { flex: 1; max-width: 560px; border: 1px solid var(--rule); border-radius: 6px; padding: 6px 8px; background: var(--surface); }
+.journey-body { max-width: 900px; margin: 0 auto; }
+.journey-summary h2 { font-size: 24px; font-weight: 600; margin: 0 0 4px; max-width: 70ch; }
+.journey-summary p { margin: 0 0 4px; }
+.muted { color: var(--muted); }
+.journey-graph { display: block; max-width: 100%; height: auto; margin: 22px 0; background: var(--surface); border: 1px solid var(--rule); border-radius: 10px; }
+.journey-graph .hop { stroke: var(--accent); stroke-width: 3; stroke-linecap: round; }
+.journey-graph .hop.pending { stroke: var(--muted); stroke-dasharray: 2 7; }
+.journey-graph .hop-label { fill: var(--accent); font-size: 12px; font-weight: 600; paint-order: stroke; stroke: var(--surface); stroke-width: 4px; }
+.journey-graph .jnode { fill: var(--accent); }
+.journey-graph .jnode.end { fill: var(--ink); }
+.journey-graph .jname { fill: var(--ink); font-size: 13px; paint-order: stroke; stroke: var(--surface); stroke-width: 5px; stroke-linejoin: round; }
+.timeline { list-style: none; margin: 0; padding: 0; max-width: 70ch; }
+.timeline li { display: grid; grid-template-columns: 5ch 1fr; gap: 14px; padding: 7px 0; border-bottom: 1px solid var(--rule); }
+.timeline time { color: var(--muted); }
+
+.open { position: absolute; top: 16px; z-index: 3; border: 1px solid var(--rule); background: var(--surface);
   border-radius: 6px; padding: 7px 12px; cursor: pointer; }
 .open.left { left: 16px; } .open.right { right: 16px; }
 .open .n { color: var(--muted); margin-left: 6px; }
 
-.drawer { position: absolute; top: 0; bottom: 0; width: min(380px, 92vw); z-index: 3; display: flex; flex-direction: column;
+.drawer { position: absolute; top: 0; bottom: 0; width: min(380px, 92vw); z-index: 4; display: flex; flex-direction: column;
   background: var(--surface); box-shadow: 0 0 0 1px var(--rule), 0 12px 32px rgba(15, 40, 38, .14); }
 .drawer.left { left: 0; } .drawer.right { right: 0; }
 .drawer[hidden] { display: none; }

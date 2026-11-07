@@ -87,11 +87,14 @@ export class Chat {
       ? `<span class="urgency ${m.priority}">${m.priority[0] + m.priority.slice(1).toLowerCase()}, </span>` : "";
     el.innerHTML = `<div class="body"></div>
       <div class="meta">${urgency}<span class="peer"></span>, ${m.at.split(" ")[1].slice(0, 5)}${state}
-        ${m.direction === "in" ? ` <button class="reply" type="button">Reply</button>` : ""}</div>
+        ${m.direction === "in" ? ` <button class="reply" type="button">Reply</button>` : ""}
+        <button class="follow" type="button">Follow</button></div>
       ${notDelivered ? `<div class="alert">NOT DELIVERED — use another channel</div>` : ""}
       ${m.status === "in transit" ? `<div class="meta deadline">Timing not guaranteed. Marked not delivered if still travelling at ${m.flag_at.split(" ")[1].slice(0, 5)}.</div>` : ""}`;
     el.querySelector(".peer").textContent = (m.direction === "out" ? "to " : "from ") + pretty(m.peer);
-    el.querySelector(".body").textContent = (m.in_response_to ? "↩ " : "") + m.summary.replaceAll(" · ", ", ");
+    el.querySelector(".body").textContent = (m.in_response_to ? "↩ " : "") + m.summary;
+    el.querySelector(".follow").onclick = () =>
+      this.root.dispatchEvent(new CustomEvent("follow", { detail: m.id, bubbles: true }));
     const reply = el.querySelector(".reply");
     if (reply) reply.onclick = () => {
       this.replyTo = m.id; this.to.value = m.peer;

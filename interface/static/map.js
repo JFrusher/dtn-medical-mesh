@@ -1,83 +1,169 @@
-// Schematic map (spec §10.3): roads, places and the vehicles carrying messages. No basemap,
-// so it works with no internet. Sizes are SVG attributes scaled to the view (CSS would pin them).
+// The map (spec §10.3): real streets from the bundled OpenStreetMap extract when the scenario
+// has a geographic origin, a plain ground otherwise. Nodes, contacts and moving message pieces
+// are drawn on an SVG overlay in screen pixels, so they look the same at any zoom.
+/* global maplibregl, pmtiles, basemaps */
 const NS = "http://www.w3.org/2000/svg";
+const M_LAT = 110540, M_LON = 111320;
+const FLIGHT_MS = 1400;  // how long a moving piece takes to cross a contact on screen
 
 export class NetMap {
-  constructor(svg) { this.svg = svg; this.box = null; }
+  constructor(container, overlay) {
+    this.container = container; this.svg = overlay;
+    this.map = null; this.t = null; this.flights = []; this.seen = new Set(); this.selected = null;
+    this.reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  }
 
   draw(t) {
-    if (!this.box) this.frame(t.nodes);
-    // one on-screen pixel in map units, so text and strokes keep their size at any width
-    const u = Math.max(this.box[2] / (this.svg.clientWidth || 900), this.box[3] / (this.svg.clientHeight || 600));
-    const pos = Object.fromEntries(t.nodes.map(n => [n.id, [n.x, -n.y]]));
+    this.t = t;
+    if (!this.map) this.init(t);
+    for (const tr of t.transfers) {  // each new custody receipt starts a flight
+      const key = `${tr.t}|${tr.from}|${tr.to}`;
+      if (this.seen.has(key)) continue;
+      this.seen.add(key);
+      if (!this.reduceMotion) this.flights.push({ ...tr, start: performance.now() });
+    }
+    this.render();
+  }
+
+  select(journey) { this.selected = journey; this.render(); }
+
+  init(t) {
+    const geo = t.geo;
+    const protocol = new pmtiles.Protocol();
+    maplibregl.addProtocol("pmtiles", protocol.tile);
+    this.lnglat = ([x, y]) => {
+      const [lat0, lon0] = geo ?? [0, 0];
+      return [lon0 + x / (M_LON * Math.cos(lat0 * Math.PI / 180)), lat0 + y / M_LAT];
+    };
+    this.map = new maplibregl.Map({
+      container: this.container, style: style(geo), attributionControl: false,
+      dragRotate: false, pitchWithRotate: false, touchPitch: false,
+    });
+    this.map.addControl(new maplibregl.AttributionControl({ compact: true }), "bottom-left");
+    const pts = t.nodes.flatMap(n => [[n.x, n.y], ...(n.route ?? [])]).map(this.lnglat);
+    const lons = pts.map(p => p[0]), lats = pts.map(p => p[1]);
+    this.map.fitBounds([[Math.min(...lons), Math.min(...lats)], [Math.max(...lons), Math.max(...lats)]],
+      { padding: { top: 80, bottom: 60, left: 70, right: 150 }, animate: false });  // labels sit right
+    this.map.on("move", () => this.render());
+    this.map.on("resize", () => this.render());
+    const tick = () => { if (this.flights.length) this.render(); requestAnimationFrame(tick); };
+    requestAnimationFrame(tick);
+  }
+
+  px(xy) {
+    const p = this.map.project(this.lnglat(xy));
+    return [p.x, p.y];
+  }
+
+  render() {
+    const t = this.t;
+    if (!t || !this.map) return;
+    const pos = Object.fromEntries(t.nodes.map(n => [n.id, this.px([n.x, n.y])]));
     const out = [];
-    for (const n of t.nodes) if (n.route) {  // the roads the vehicles drive
-      const pts = [...n.route, n.route[0]].map(([x, y]) => `${x},${-y}`).join(" ");
-      out.push(el("polyline", { points: pts, class: "road", "stroke-width": 5 * u }));
+    for (const n of t.nodes) if (n.route) {  // the road each vehicle drives
+      const pts = [...n.route, n.route[0]].map(p => this.px(p).join(",")).join(" ");
+      out.push(el("polyline", { points: pts, class: "road" }));
     }
-    for (const id of t.lora) {
-      const [cx, cy] = pos[id];
-      out.push(el("circle", { cx, cy, r: 26 * u, class: "lora", "stroke-width": 1.5 * u }));
-    }
+    for (const id of t.lora) out.push(el("circle", { cx: pos[id][0], cy: pos[id][1], r: 26, class: "lora" }));
     for (const [a, b] of t.links) {
-      const [x1, y1] = pos[a], [x2, y2] = pos[b];
-      out.push(el("line", { x1, y1, x2, y2, class: "link", "stroke-width": 3 * u }));
+      out.push(el("line", { x1: pos[a][0], y1: pos[a][1], x2: pos[b][0], y2: pos[b][1], class: "link" }));
     }
     const places = t.nodes.filter(n => n.role === "hub" || n.role === "site");
-    const rest = t.nodes.filter(n => !places.includes(n));
-    for (const n of [...rest, ...places]) out.push(this.node(n, pos[n.id], u));
+    for (const n of [...t.nodes.filter(n => !places.includes(n)), ...places]) out.push(this.node(n, pos[n.id]));
+    out.push(...this.selection(pos), ...this.pieces(pos));
     this.svg.replaceChildren(...out);
   }
 
-  frame(nodes) {
-    const pts = nodes.flatMap(n => [[n.x, n.y], ...(n.route ?? [])]);
-    const xs = pts.map(p => p[0]), ys = pts.map(p => -p[1]);
-    const w = Math.max(...xs) - Math.min(...xs) || 1, h = Math.max(...ys) - Math.min(...ys) || 1;
-    const pad = Math.max(w, h) * 0.12;
-    // labels sit to the right of their node, so leave extra room on that side
-    this.box = [Math.min(...xs) - pad, Math.min(...ys) - pad, w + 3 * pad, h + 2 * pad];
-    this.svg.setAttribute("viewBox", this.box.join(" "));
-    this.svg.setAttribute("preserveAspectRatio", "xMidYMid meet");
+  pieces(pos) {
+    const now = performance.now(), out = [];
+    this.flights = this.flights.filter(f => now - f.start < FLIGHT_MS && pos[f.from] && pos[f.to]);
+    for (const f of this.flights) {
+      const k = (now - f.start) / FLIGHT_MS, e = k < .5 ? 2 * k * k : 1 - (-2 * k + 2) ** 2 / 2;
+      const [x1, y1] = pos[f.from], [x2, y2] = pos[f.to];
+      const mine = this.selected && f.bundles.includes(this.selected.id);
+      for (let i = 0; i < Math.min(f.pieces, 6); i++) {  // a short train of dots, one per piece
+        const q = Math.max(0, Math.min(1, e - i * 0.05));
+        out.push(el("circle", { cx: x1 + (x2 - x1) * q, cy: y1 + (y2 - y1) * q, r: 3.2, class: mine ? "piece mine" : "piece" }));
+      }
+    }
+    return out;
   }
 
-  node(n, [x, y], u) {
+  selection(pos) {
+    const j = this.selected;
+    if (!j) return [];
+    const out = [];
+    for (const [id, count] of Object.entries(j.holders)) {
+      if (!pos[id]) continue;
+      const [x, y] = pos[id];
+      out.push(el("circle", { cx: x, cy: y, r: 15, class: "holder" }));
+      const label = el("text", { x: x + 18, y: y - 12, class: "holder-label" });
+      label.textContent = id === j.to_node ? `${count} of ${j.k} needed` : `holds ${count}`;
+      out.push(label);
+    }
+    return out;
+  }
+
+  node(n, [x, y]) {
     const g = document.createElementNS(NS, "g");
     const place = n.role === "hub" || n.role === "site";
     let shape;
     if (place) {
-      const r = (n.role === "hub" ? 9 : 6.5) * u;
-      shape = el("rect", { x: x - r, y: y - r, width: 2 * r, height: 2 * r, rx: 1.5 * u, class: n.up ? "place" : "off" });
+      const r = n.role === "hub" ? 8 : 6;
+      shape = el("rect", { x: x - r, y: y - r, width: 2 * r, height: 2 * r, rx: 1.5, class: n.up ? "place" : "off" });
     } else if (n.role === "relay") {
-      const r = 5.5 * u;
-      shape = el("polygon", { points: `${x},${y - r} ${x + r},${y} ${x},${y + r} ${x - r},${y}`,
-        class: n.up ? "relay" : "off", "stroke-width": 1.5 * u });
+      shape = el("polygon", { points: `${x},${y - 6} ${x + 6},${y} ${x},${y + 6} ${x - 6},${y}`, class: n.up ? "relay" : "off" });
     } else {
-      shape = el("circle", { cx: x, cy: y, r: 5.5 * u, class: !n.up ? "off" : n.hostile ? "hostile" : "carrier",
-        "stroke-width": 2 * u });
+      shape = el("circle", { cx: x, cy: y, r: 5.5, class: !n.up ? "off" : n.hostile ? "hostile" : "carrier" });
     }
     const title = document.createElementNS(NS, "title");
     title.textContent = `${pretty(n.id)}${n.hostile ? " (attacker)" : ""}${n.up ? "" : ", powered off"}`
-      + (n.shards ? `, carrying ${n.shards} message pieces` : "")
+      + (n.shards ? `, holding ${n.shards} message pieces` : "")
       + (n.battery_pct == null ? "" : `, battery ${Math.round(n.battery_pct)}%`);
     g.append(shape, title);
-    const label = (text, cls, dy, size, weight) => {
-      const tx = el("text", { x: x + 11 * u, y: y + dy * u, class: cls, "font-size": size * u, "stroke-width": 3 * u });
-      if (weight) tx.setAttribute("font-weight", weight);
+    // places label to the right, carriers to the left, so a van parked at a clinic stays readable
+    const label = (text, cls, dy) => {
+      const tx = el("text", place ? { x: x + 11, y: y + dy, class: cls }
+        : { x: x - 10, y: y + dy, class: cls, "text-anchor": "end" });
       tx.textContent = text;
       g.append(tx);
     };
-    // places are always named; carriers and relays stay quiet unless they hold messages or are down
-    if (place) label(pretty(n.id), "name", 4.5, n.role === "hub" ? 15 : 13, 600);
-    if (n.shards) label(place ? `${n.shards} waiting` : `carrying ${n.shards}`, "load", place ? 21 : 4.5, 12);
-    if (!n.up) label("off", "minor", place ? 21 : 4.5, 12);
-    if (n.hostile && n.up) label(pretty(n.id), "minor", 4.5, 12);
+    if (place) label(pretty(n.id), n.role === "hub" ? "name hub" : "name", 4.5);
+    else if (n.hostile && n.up) label(pretty(n.id), "minor", 4.5);
+    if (n.shards) label(place ? `${n.shards} waiting` : `carrying ${n.shards}`, "load", place ? 20 : 4.5);
+    if (!n.up) label("off", "minor", place ? 20 : 4.5);
     return g;
   }
 }
 
+function style(geo) {
+  const dark = matchMedia("(prefers-color-scheme: dark)").matches;
+  const s = { version: 8, glyphs: `${location.origin}/static/map/fonts/{fontstack}/{range}.pbf`, sources: {}, layers: [] };
+  const ground = getComputedStyle(document.documentElement).getPropertyValue("--paper").trim();
+  if (!geo) {
+    s.layers = [{ id: "ground", type: "background", paint: { "background-color": ground } }];
+    return s;
+  }
+  s.sources.osm = { type: "vector", url: `pmtiles://${location.origin}/static/map/arusha.pmtiles`,
+    attribution: '<a href="https://www.openstreetmap.org/copyright">© OpenStreetMap contributors</a>' };
+  const ward = dark
+    ? { background: ground, earth: ground, water: "#1f3a3f", park_a: "#1c302c", park_b: "#1c302c", wood_a: "#1c302c",
+        wood_b: "#1c302c", scrub_a: "#1a2c29", scrub_b: "#1a2c29", buildings: "#22332f", hospital: "#22332f",
+        school: "#1d2c29", industrial: "#1d2c29", major: "#3a4f4b", minor_a: "#2c3e3a", minor_b: "#2c3e3a",
+        highway: "#4a605b", other: "#283a36", city_label: "#c4d3d0", subplace_label: "#8fa29e",
+        roads_label_major: "#8fa29e", roads_label_minor: "#7a8d89" }
+    : { background: ground, earth: ground, water: "#c6dde0", park_a: "#dde8e2", park_b: "#dde8e2", wood_a: "#d8e5de",
+        wood_b: "#d8e5de", scrub_a: "#e1e9e5", scrub_b: "#e1e9e5", buildings: "#e1e7e5", hospital: "#e4ebe9",
+        school: "#e6ecea", industrial: "#e6ecea", major: "#ffffff", minor_a: "#fbfcfc", minor_b: "#fbfcfc",
+        highway: "#ffffff", other: "#f6f8f8", city_label: "#4d5d5a", subplace_label: "#7c8b88",
+        roads_label_major: "#8a9895", roads_label_minor: "#9aa7a4" };
+  const flavor = { ...basemaps.namedFlavor(dark ? "dark" : "light"), ...ward };
+  s.layers = basemaps.layers("osm", flavor, { lang: "en" }).filter(l => !l.layout?.["icon-image"]);
+  return s;
+}
+
 export function pretty(id) {
-  const s = id.toLowerCase().replaceAll(/[_-]/g, " ");
-  return s[0].toUpperCase() + s.slice(1);
+  return id.toLowerCase().split(/[_-]/).map(w => w[0].toUpperCase() + w.slice(1)).join(" ");
 }
 
 function el(tag, attrs) {

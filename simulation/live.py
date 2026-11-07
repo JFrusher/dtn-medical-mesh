@@ -227,7 +227,7 @@ def main(argv: list[str] | None = None) -> None:
     p = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    p.add_argument("scenario", nargs="?", default="rural-clinics")
+    p.add_argument("scenario", nargs="?", default="arusha")
     p.add_argument("--seed", type=int, default=1)
     p.add_argument("--speed", type=float, default=60.0)
     p.add_argument("--port", type=int, default=8000)

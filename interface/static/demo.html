@@ -4,7 +4,11 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Satchel</title>
+  <link rel="stylesheet" href="/static/vendor/maplibre-gl.css">
   <link rel="stylesheet" href="/static/style.css">
+  <script src="/static/vendor/maplibre-gl.js"></script>
+  <script src="/static/vendor/pmtiles.js"></script>
+  <script src="/static/vendor/basemaps.js"></script>
 </head>
 <body>
   <header class="bar">
@@ -16,11 +20,18 @@
       <button data-speed="60">60×</button>
       <button data-speed="600">600×</button>
     </div>
+    <div class="views" role="tablist" aria-label="View">
+      <button role="tab" data-view="map" aria-selected="true">Map</button>
+      <button role="tab" data-view="journey" aria-selected="false">Journey</button>
+    </div>
     <div class="counts" id="counts" aria-live="polite"></div>
   </header>
 
   <main class="stage">
-    <svg id="map" role="img" aria-label="Clinics, vehicles and relays, with the contacts open right now"></svg>
+    <div id="map"></div>
+    <svg id="overlay" role="img" aria-label="Clinics, vehicles and relays, the contacts open now and message pieces moving between them"></svg>
+    <section class="journey" id="journey" hidden aria-label="Message journey"></section>
+    <div class="following" hidden>Following <b></b><button type="button">Clear</button></div>
     <button class="open left" data-drawer="left" aria-controls="left"></button>
     <button class="open right" data-drawer="right" aria-controls="right"></button>
     <aside class="drawer left" id="left" hidden></aside>
@@ -42,6 +53,7 @@
   <script type="module">
     import { Chat } from "/static/chat.js";
     import { NetMap, pretty } from "/static/map.js";
+    import { Journey } from "/static/journey.js";
 
     const endpoints = await (await fetch("/api/endpoints")).json();
     const hub = endpoints.find(e => e.name.includes("hospital")) ?? endpoints.at(-1);
@@ -64,7 +76,21 @@
       activity.textContent = log.hidden ? "Show activity" : "Hide activity";
     };
 
-    const map = new NetMap(document.getElementById("map"));
+    const map = new NetMap(document.getElementById("map"), document.getElementById("overlay"));
+    const following = document.querySelector(".following");
+    const journey = new Journey(document.getElementById("journey"), endpoints, j => {
+      map.select(j);
+      following.hidden = !j;
+      if (j) following.querySelector("b").textContent = j.summary.slice(0, 48);
+    });
+    following.querySelector("button").onclick = () => journey.show(null);
+    const views = document.querySelectorAll(".views button");
+    const showView = name => {
+      for (const v of views) v.setAttribute("aria-selected", v.dataset.view === name);
+      document.getElementById("journey").hidden = name !== "journey";
+    };
+    for (const v of views) v.onclick = () => showView(v.dataset.view);
+    document.addEventListener("follow", ev => { journey.show(ev.detail); showView("journey"); });
     const buttons = document.querySelectorAll(".speed button");
     for (const b of buttons) b.onclick = () => fetch("/api/control", {
       method: "POST", headers: { "content-type": "application/json" },

@@ -54,9 +54,12 @@ def test_demo_sends_and_shows_delivery(tmp_path: Path, page: Page) -> None:
     for url in serve(sim):
         page.goto(url)
         expect(page.locator(".banner")).to_contain_text("Not for emergencies")
-        expect(page.locator("#map g")).to_have_count(3)
-        label = page.locator("#map text").first
-        assert label.bounding_box()["height"] > 8  # type: ignore[index]  # readable, not microscopic
+        expect(page.locator("#overlay g")).to_have_count(3)
+        # measured in-page in one step: the overlay redraws often, so elements get replaced
+        heights = page.evaluate(
+            "[...document.querySelectorAll('#overlay text')].map(t => t.getBBox().height)"
+        )
+        assert max(heights) > 8  # readable, not microscopic
         page.locator(".open.left").click()
         page.locator(".open.right").click()
         left = page.locator("#left")
@@ -73,6 +76,11 @@ def test_demo_sends_and_shows_delivery(tmp_path: Path, page: Page) -> None:
             "Heart rate 150", timeout=20_000
         )
         expect(mine).to_contain_text("Delivered", timeout=20_000)
+        mine.locator(".follow").click()
+        timeline = page.locator("#journey .timeline")
+        expect(timeline).to_contain_text("Ambulance 01 took", timeout=10_000)
+        expect(timeline).to_contain_text("Rebuilt and opened at Hospital")
+        expect(page.locator("#journey .journey-graph")).to_be_visible()
         OUT.mkdir(exist_ok=True)
         page.screenshot(path=OUT / "demo.png", full_page=True)
 

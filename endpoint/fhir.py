@@ -51,7 +51,7 @@ class Message:
         parts = [self.text] if self.text else []
         parts += [f"{VITALS[v.code][0]} {v.value:g} {VITALS[v.code][1]}" for v in self.vitals]
         parts += [f"[{a.title}, {len(a.data):,} bytes]" for a in self.attachments]
-        return " · ".join(parts)
+        return ", ".join(parts)
 
 
 def encode(msg: Message, sent_at: str) -> bytes:
