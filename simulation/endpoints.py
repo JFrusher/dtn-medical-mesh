@@ -30,6 +30,7 @@ class VirtualEndpoint:
     directory: dict[str, DirectoryEntry] = field(default_factory=dict)
     sent: dict[bytes, Outgoing] = field(default_factory=dict)
     inbox: list["Received"] = field(default_factory=list)
+    pending: list[tuple[bytes, ...]] = field(default_factory=list)  # site node was down
 
     def __post_init__(self) -> None:
         if self.site.config.sa is None:
@@ -37,6 +38,7 @@ class VirtualEndpoint:
         self.keys = EndpointKeys.generate(self.entropy)
         self.site.on_deliver = self._on_deliver
         self.site.on_directory = self.update_directory
+        self.site.on_boot = self._flush_pending
         self.site.on_delivered = self._on_delivered
 
     def send(self, to: str, content: bytes, priority: Priority) -> bytes:
@@ -54,13 +56,20 @@ class VirtualEndpoint:
             created=int((SIM_EPOCH + self.world.scheduler.now) * 1000),  # wall-clock ms
         )
         encoded = tuple(encode_shard(s) for s in shards)
-        self.world.dispatch(self.site, partial(Inject, shards=encoded))
+        if self.site.up:
+            self.world.dispatch(self.site, partial(Inject, shards=encoded))
+        else:
+            self.pending.append(encoded)  # the laptop keeps it until its node is back
         h = shards[0].header
         out = Outgoing(to, h.bundle_id, h.created, h.lifetime_s)
         self.sent[h.bundle_id] = out
         expires_at = out.expires_ms / 1000 - SIM_EPOCH
         self.world.scheduler.schedule(expires_at + 0.001, partial(self._check_expiry, out))
         return h.bundle_id
+
+    def _flush_pending(self) -> None:
+        while self.pending:
+            self.world.dispatch(self.site, partial(Inject, shards=self.pending.pop(0)))
 
     def status(self, bundle_id: bytes) -> Status:
         return self.sent[bundle_id].status(self._now_ms())

@@ -1,11 +1,13 @@
 """Fault injection for scenarios (spec §12.2): clocks, power and hostile behaviour."""
 
 from dataclasses import dataclass
+from functools import partial
 from typing import Any
 
 from simulation.world import World
 
 RTC_FAULTS = ("rtc_reset", "rtc_fail", "rtc_drift")
+POWER_FAULTS = ("power_cut",)  # value: outage in seconds
 
 
 @dataclass(frozen=True)
@@ -36,6 +38,9 @@ def apply(world: World, fault: FaultSpec) -> None:
         node.rtc.failed = True
     elif fault.kind == "rtc_drift":
         node.rtc.drift_ppm = fault.value
+    elif fault.kind == "power_cut":
+        world.power_off(node)
+        world.scheduler.after(fault.value, partial(world.power_on, node))
 
 
-KINDS = frozenset(RTC_FAULTS)
+KINDS = frozenset(RTC_FAULTS + POWER_FAULTS)

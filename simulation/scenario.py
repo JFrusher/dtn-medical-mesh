@@ -78,8 +78,8 @@ def _parse(raw: dict[str, Any]) -> Scenario:
         radio=RadioParams(**raw.get("radio", {})),
         nodes=nodes,
         endpoints=endpoints,
-        messages=tuple(_message(m, names) for m in raw.get("messages", [])),
-        faults=tuple(FaultSpec.parse(f, node_ids) for f in raw.get("faults", [])),
+        messages=tuple(_message(m, names) for m in raw.get("messages") or []),
+        faults=tuple(FaultSpec.parse(f, node_ids) for f in raw.get("faults") or []),
     )
 
 

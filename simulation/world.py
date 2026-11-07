@@ -57,6 +57,10 @@ class SimNode:
     on_deliver: Callable[[bytes], None] | None = None
     on_delivered: Callable[[bytes], None] | None = None
     on_directory: Callable[[bytes, bytes], None] | None = None
+    on_boot: Callable[[], None] | None = None
+    db_path: Path | None = None
+    up: bool = False
+    boots: int = 0
 
     def boot(self, now: float) -> None:
         """Start the node from what is on disk (also used after a power cut)."""
@@ -64,6 +68,10 @@ class SimNode:
             raise RuntimeError(f"{self.id} was never provisioned")
         self.core = NodeCore(self.config, self.storage.load(), self.identity)
         self.boot_at = now
+        self.boots += 1
+        self.up = True
+        if self.on_boot:
+            self.on_boot()
 
     @property
     def id(self) -> str:
@@ -99,8 +107,35 @@ class World:
         se = SoftwareSecureElement(SeededEntropy(f"{self.scheduler.seed}:{config.node_id}"))
         storage = Storage(self.data_dir / f"{config.node_id}.db", se.read_slot(STORAGE_KEY_SLOT))
         node = SimNode(config, mobility, storage, VirtualRtc(self.scheduler), se)
+        node.db_path = self.data_dir / f"{config.node_id}.db"
         self.nodes[config.node_id] = node
         return node
+
+    def power_off(self, node: SimNode) -> None:
+        """Hard power loss: RAM state, open links and pending timers are gone; disk remains."""
+        if not node.up:
+            return
+        node.up = False
+        for pair, link in self.links.items():
+            if node.id in pair and link.up:
+                link.up = False
+                link.generation += 1
+                link.busy_until.clear()
+                self.contacts.discard(pair)
+                (other,) = pair - {node.id}
+                self.dispatch(
+                    self.nodes[other], partial(ContactDown, peer_id=node.id, radio=RadioKind.WIFI)
+                )
+        node.storage.close()
+        self.log(self.scheduler.now, f"POWER OFF {node.id}")
+
+    def power_on(self, node: SimNode) -> None:
+        if node.up:
+            return
+        assert node.db_path is not None
+        node.storage = Storage(node.db_path, node.se.read_slot(STORAGE_KEY_SLOT))
+        self.log(self.scheduler.now, f"POWER ON {node.id}")
+        node.boot(self.scheduler.now)
 
     def start(self) -> None:
         for node in self.nodes.values():
@@ -112,6 +147,8 @@ class World:
 
     def dispatch(self, node: SimNode, event_factory: Callable[..., Event]) -> None:
         """Build an event stamped with the node's own clocks, run it, apply the actions in order."""
+        if not node.up:
+            return  # a powered-off node hears nothing
         try:
             wall: float | None = node.rtc.read()
         except RtcError:
@@ -132,10 +169,13 @@ class World:
                     node.on_deliver(action.bundle)
             case SetTimer():
                 at = node.boot_at + action.at_mono
-                self.scheduler.schedule(
-                    max(at, self.scheduler.now),
-                    lambda: self.dispatch(node, partial(Timer, name=action.name)),
-                )
+                boot = node.boots
+
+                def fire(name: str = action.name) -> None:
+                    if node.boots == boot:  # timers die with the boot that set them
+                        self.dispatch(node, partial(Timer, name=name))
+
+                self.scheduler.schedule(max(at, self.scheduler.now), fire)
             case Delivered():
                 self.log(self.scheduler.now, f"ACKED at origin {node.id}")
                 if node.on_delivered:
@@ -191,7 +231,7 @@ class World:
         return math.dist(self.position(a), self.position(b)) <= self.radio.wifi_range_m
 
     def _tick(self) -> None:
-        for a, b in combinations(sorted(self.nodes), 2):
+        for a, b in combinations(sorted(n for n, node in self.nodes.items() if node.up), 2):
             pair = frozenset((a, b))
             link = self.links.setdefault(pair, Link())
             if self._in_range(a, b):
@@ -209,8 +249,8 @@ class World:
     def _link_up(self, a: str, b: str) -> None:
         pair = frozenset((a, b))
         self._connecting.discard(pair)
-        if not self._in_range(a, b):
-            return  # drove out of range before the link came up
+        if not self._in_range(a, b) or not (self.nodes[a].up and self.nodes[b].up):
+            return  # drove out of range, or lost power, before the link came up
         self.links[pair].up = True
         self.contacts.add(pair)
         self.log(self.scheduler.now, f"CONTACT {a} <-> {b}")
