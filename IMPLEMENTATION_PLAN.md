@@ -65,7 +65,7 @@ docs/
 | P0.S02 | Add dependencies: `cryptography`, `pynacl`, `cbor2`, `zfec`, `sqlcipher3` (binary wheel), `fastapi`, `uvicorn`, `pyyaml`, `hypothesis`. Add a smoke test that imports each one and opens an in-memory SQLCipher DB. *If no SQLCipher wheel exists for the platform, stop and report back; don't silently fall back.* | `pyproject.toml`, `uv.lock`, `validation/test_deps.py` | `uv run pytest validation/test_deps.py` |
 | P0.S03 | GitHub Actions CI: uv sync, ruff, mypy, pytest. | `.github/workflows/ci.yml` | CI green on push |
 | P0.S04 | `docs/requirements.md` with `REQ-*` IDs taken from the spec (security, durability, routing, time, UX, safety). Add a pytest marker `req` registered in `conftest.py`. | `docs/requirements.md`, `validation/conftest.py` | `uv run pytest -q` |
-| P0.S05 | Import-boundary test: `node.*` never imports `endpoint.*` or `interface.*`; nothing outside `simulation`/`validation` imports seeded entropy. | `validation/test_boundaries.py` | `uv run pytest validation/test_boundaries.py` |
+| P0.S05 | Import-boundary test: `node.*` never imports `endpoint.*` or `interface.*`; `node`, `endpoint` and `interface` never import `simulation` (where seeded entropy lives). | `validation/test_boundaries.py` | `uv run pytest validation/test_boundaries.py` |
 | P0.S06 | Hardware interfaces as `Protocol`s: `SecureElement` (sign, public_key, read_slot), `Rtc` (now), `PowerSource` (state, low_power_signal), `Radio` (kind, range, bandwidth), `Entropy` (bytes). Add an `OsEntropy` implementation. | `node/hw/*.py` | `uv run mypy node` |
 | P0.S07 | Events and actions: `ContactUp/Down`, `FrameReceived`, `Timer`, `PowerLow`, `Inject`; `SendFrame`, `Store`, `Delete`, `SetTimer`, `Deliver`, `Emit(telemetry)`. Frozen dataclasses. | `node/events.py` | `uv run mypy node` |
 
@@ -158,7 +158,7 @@ Goal: in the emulator, a clinic endpoint sends one text note and the hospital en
 |---|---|---|---|
 | P6.S01 | FHIR-lite models (§6.4) with schema validation. | `endpoint/fhir.py`, tests | `uv run pytest validation/endpoint/test_fhir.py` |
 | P6.S02 | Telemetry JSON schema (§10.3): nodes, links, shards in flight, events. | `interface/telemetry.py`, `docs/telemetry.schema.json`, tests | `uv run pytest validation/interface/test_telemetry.py` |
-| P6.S03 | Sim server: FastAPI runs the emulator at a chosen speed (pause, 1×, 60×, 600×) and streams telemetry over WebSocket. | `interface/app.py`, `simulation/live.py` | `uv run pytest validation/interface/test_ws.py` |
+| P6.S03 | Sim server: `interface/app.py` is an app factory taking a backend; `simulation/live.py` plugs in the emulator (pause, 1×, 60×, 600×) and streams telemetry over WebSocket. `interface/` never imports `simulation/` (P0.S05). | `interface/app.py`, `simulation/live.py` | `uv run pytest validation/interface/test_ws.py` |
 | P6.S04 | Endpoint API: send message, list conversations, message status, for a chosen virtual endpoint. | `interface/app.py`, tests | `uv run pytest validation/interface/test_api.py` |
 | P6.S05 | PWA chat UI (plain JS): conversations, compose, attach, priority one-tap, status chips, expected-latency and "no guarantee of timing" banner, NOT DELIVERED alert. | `interface/static/*` | Playwright smoke test `validation/interface/test_ui.py` |
 | P6.S06 | Vitals quick-entry form → FHIR `Observation`. | `interface/static/*` | same |
