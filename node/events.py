@@ -56,7 +56,14 @@ class Inject(EventBase):
     bundle: bytes
 
 
-Event = ContactUp | ContactDown | FrameReceived | Timer | PowerLow | Inject
+@dataclass(frozen=True, kw_only=True)
+class EndpointAck(EventBase):
+    """The attached endpoint opened this bundle: issue a delivery ACK (spec §8.7)."""
+
+    bundle_id: bytes
+
+
+Event = ContactUp | ContactDown | FrameReceived | Timer | PowerLow | Inject | EndpointAck
 
 # --- Actions ----------------------------------------------------------------
 
@@ -103,4 +110,11 @@ class Emit:
     telemetry: Mapping[str, object]
 
 
-Action = SendFrame | Store | Delete | SetTimer | Deliver | Emit
+@dataclass(frozen=True, kw_only=True)
+class Delivered:
+    """Tell the attached endpoint that a bundle it sent was delivered (spec §8.7)."""
+
+    bundle_id: bytes
+
+
+Action = SendFrame | Store | Delete | SetTimer | Deliver | Delivered | Emit

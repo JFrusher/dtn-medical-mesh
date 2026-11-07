@@ -14,6 +14,7 @@ from node.events import (
     ContactUp,
     Delete,
     Deliver,
+    Delivered,
     Emit,
     Event,
     FrameReceived,
@@ -42,6 +43,7 @@ class SimNode:
     core: NodeCore = field(init=False)
     boot_at: float = 0.0
     on_deliver: Callable[[bytes], None] | None = None
+    on_delivered: Callable[[bytes], None] | None = None
 
     def __post_init__(self) -> None:
         self.core = NodeCore(self.config, self.storage.load())
@@ -109,6 +111,10 @@ class World:
                     max(at, self.scheduler.now),
                     lambda: self.dispatch(node, partial(Timer, name=action.name)),
                 )
+            case Delivered():
+                self.log(self.scheduler.now, f"ACKED at origin {node.id}")
+                if node.on_delivered:
+                    node.on_delivered(action.bundle_id)
             case Emit():
                 pass
 

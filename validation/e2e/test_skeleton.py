@@ -21,3 +21,13 @@ def test_same_seed_same_run(tmp_path: Path) -> None:
     a = run(scenario, seed=3, data_dir=tmp_path / "a")
     b = run(scenario, seed=3, data_dir=tmp_path / "b")
     assert a.log == b.log
+
+
+@pytest.mark.req("REQ-PROTO-06", "REQ-SAFE-01")
+def test_delivery_ack_returns_to_origin_and_purges_everywhere(tmp_path: Path) -> None:
+    result = run(load_scenario("skeleton"), seed=1, data_dir=tmp_path)
+    [sent] = result.endpoints["clinic"].sent.values()
+    assert sent.status.value == "delivered"
+    for node in result.world.nodes.values():
+        assert node.core.bundles == {}, node.id
+        assert len(node.core.acks) == 1, node.id

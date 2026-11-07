@@ -1,11 +1,12 @@
 """Virtual endpoints (clinic/hospital laptops) attached to site nodes in the simulation."""
 
 from dataclasses import dataclass, field
+from enum import Enum
 from functools import partial
 
 from endpoint.crypto import CryptoError, EndpointKeys, Opened, open_sealed, seal
 from node.bundle import Bundle, Header, Priority, decode_bundle, encode_bundle, make_bundle_id
-from node.events import Inject
+from node.events import EndpointAck, Inject
 from simulation.virtual_hw import SeededEntropy
 from simulation.world import SimNode, World
 
@@ -16,6 +17,17 @@ class DirectoryEntry:
     encryption_public: bytes
 
 
+class Status(Enum):
+    IN_TRANSIT = "in transit"
+    DELIVERED = "delivered"
+
+
+@dataclass
+class SentMessage:
+    recipient: str
+    status: Status = Status.IN_TRANSIT
+
+
 @dataclass
 class VirtualEndpoint:
     name: str
@@ -24,7 +36,7 @@ class VirtualEndpoint:
     directory: dict[str, DirectoryEntry]
     entropy: SeededEntropy
     keys: EndpointKeys = field(init=False)
-    sent: dict[bytes, str] = field(default_factory=dict)  # bundle_id -> recipient
+    sent: dict[bytes, "SentMessage"] = field(default_factory=dict)
     inbox: list[Opened] = field(default_factory=list)
 
     def __post_init__(self) -> None:
@@ -33,6 +45,7 @@ class VirtualEndpoint:
         self.keys = EndpointKeys.generate(self.entropy)
         self.directory[self.name] = DirectoryEntry(self.site.config.sa, self.keys.encryption_public)
         self.site.on_deliver = self._on_deliver
+        self.site.on_delivered = self._on_delivered
 
     def send(self, to: str, content: bytes, priority: Priority, lifetime_s: int) -> bytes:
         entry = self.directory[to]
@@ -45,7 +58,7 @@ class VirtualEndpoint:
         )
         encoded = encode_bundle(Bundle(header, payload))
         self.world.dispatch(self.site, partial(Inject, bundle=encoded))
-        self.sent[header.bundle_id] = to
+        self.sent[header.bundle_id] = SentMessage(to)
         return header.bundle_id
 
     def _on_deliver(self, encoded: bytes) -> None:
@@ -55,3 +68,8 @@ class VirtualEndpoint:
         except CryptoError:
             return  # addressed to another endpoint in this service area
         self.world.log(self.world.scheduler.now, f"OPENED by {self.name}")
+        bid = bundle.header.bundle_id
+        self.world.dispatch(self.site, partial(EndpointAck, bundle_id=bid))
+
+    def _on_delivered(self, bundle_id: bytes) -> None:
+        self.sent[bundle_id].status = Status.DELIVERED
