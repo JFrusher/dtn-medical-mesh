@@ -12,6 +12,7 @@ dependencies = [
     "pyyaml>=6.0.3",
     "sqlcipher3>=0.6.5",
     "uvicorn>=0.54.0",
+    "websockets>=17.4",
     "zfec>=1.6.0.0",
 ]
 
@@ -26,6 +27,7 @@ dev = [
     "hypothesis>=6.170.15",
     "types-pyyaml>=6.0.12.20261103",
     "httpx>=0.28.1",
+    "playwright==1.63.0",
 ]
 
 [build-system]

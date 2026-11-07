@@ -1,1 +1,57 @@
-<!doctype html><title>placeholder</title>
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Medical Mesh Demo</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header>
+    <h1>dtn-medical-mesh · live emulator</h1>
+    <span class="stats" id="stats" aria-live="polite"></span>
+    <div class="controls" role="group" aria-label="Simulation speed">
+      <button data-paused="true">Pause</button>
+      <button data-speed="1">1×</button>
+      <button data-speed="60">60×</button>
+      <button data-speed="600">600×</button>
+    </div>
+  </header>
+  <p class="banner" role="note">Not for emergencies. Messages travel with vehicles and staff, so delivery can take hours and timing is never guaranteed.</p>
+  <main>
+    <section id="left" aria-label="Clinic messaging"></section>
+    <section aria-label="Network map">
+      <h2>Network <span class="stats">(schematic, no basemap)</span></h2>
+      <svg id="map" role="img" aria-label="Mesh nodes and open links"></svg>
+      <div class="legend">
+        <span>■ hub</span><span>▢ clinic site</span><span>● vehicle / person</span><span>▲ relay</span>
+        <span>— Wi-Fi contact</span><span>◯ LoRa broadcast</span><span>number = shards held</span>
+      </div>
+      <pre class="log" id="log" aria-label="Event log"></pre>
+    </section>
+    <section id="right" aria-label="Hospital messaging"></section>
+  </main>
+  <script type="module">
+    import { Chat } from "/static/chat.js";
+    import { NetMap } from "/static/map.js";
+    const endpoints = await (await fetch("/api/endpoints")).json();
+    const hub = endpoints.find(e => e.name.includes("hospital")) || endpoints[endpoints.length - 1];
+    const site = endpoints.find(e => e !== hub);
+    new Chat(document.getElementById("left"), endpoints, site.name);
+    new Chat(document.getElementById("right"), endpoints, hub.name);
+    const map = new NetMap(document.getElementById("map"), document.getElementById("log"), document.getElementById("stats"));
+    const buttons = document.querySelectorAll(".controls button");
+    for (const b of buttons) b.onclick = () => fetch("/api/control", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify(b.dataset.paused ? { paused: true } : { speed: Number(b.dataset.speed), paused: false }),
+    });
+    const ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws`);
+    ws.onmessage = ev => {
+      const t = JSON.parse(ev.data);
+      map.draw(t);
+      for (const b of buttons) b.setAttribute("aria-pressed",
+        b.dataset.paused ? t.paused : !t.paused && Number(b.dataset.speed) === t.speed);
+    };
+  </script>
+</body>
+</html>

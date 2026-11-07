@@ -104,6 +104,7 @@ class LiveSim:
                     "peer": sent.recipient,
                     "priority": prio.name,
                     "status": e.status(bid).value,
+                    "flag_at": _clock(sent.expires_ms / 1000 - SIM_EPOCH),
                     "at": _clock(at),
                     "text": msg.text,
                     "summary": msg.summary(),
