@@ -79,6 +79,7 @@ def summary_from(
         "ids": sorted(ids),
         "acks": sorted(acks),
         "certs": [],
+        "crls": {},
         "from": encode_cert(me.cert),
         "issuer": encode_cert(me.issuer) if me.issuer else None,
         "to": to,

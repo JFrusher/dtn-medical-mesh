@@ -63,7 +63,14 @@ class EndpointAck(EventBase):
     bundle_id: bytes
 
 
-Event = ContactUp | ContactDown | FrameReceived | Timer | PowerLow | Inject | EndpointAck
+@dataclass(frozen=True, kw_only=True)
+class Revoke(EventBase):
+    """Operator at a hub revokes a node (e.g. reported stolen)."""
+
+    subject: str
+
+
+Event = ContactUp | ContactDown | FrameReceived | Timer | PowerLow | Inject | EndpointAck | Revoke
 
 # --- Actions ----------------------------------------------------------------
 

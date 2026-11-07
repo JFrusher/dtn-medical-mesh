@@ -109,3 +109,33 @@ class Identity:
     issuer: Cert | None  # the issuing hub's cert; None for hubs (issued by the root)
     root_pubkey: bytes
     sign: Signer
+
+
+@dataclass(frozen=True)
+class RevocationList:
+    """A hub's cumulative list of revoked node IDs; a higher seq replaces a lower one (§7.6)."""
+
+    issuer: str  # hub cert ID
+    seq: int
+    subjects: tuple[str, ...]
+    sig: bytes = b""
+
+    def signing_bytes(self) -> bytes:
+        body = [self.issuer, self.seq, list(self.subjects)]
+        return b"dtn-medical-mesh/v1/crl" + cbor2.dumps(body)
+
+
+def encode_crl(crl: RevocationList) -> bytes:
+    return cbor2.dumps([crl.issuer, crl.seq, list(crl.subjects), crl.sig])
+
+
+def decode_crl(data: bytes) -> RevocationList:
+    try:
+        issuer, seq, subjects, sig = cbor2.loads(data)
+        if not (isinstance(issuer, str) and isinstance(seq, int) and isinstance(sig, bytes)):
+            raise FormatError("bad revocation list field types")
+        if not all(isinstance(s, str) for s in subjects):
+            raise FormatError("revoked subjects must be strings")
+        return RevocationList(issuer, seq, tuple(subjects), sig)
+    except (TypeError, ValueError, cbor2.CBORDecodeError) as e:
+        raise FormatError(str(e)) from e
