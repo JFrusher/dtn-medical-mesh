@@ -1,6 +1,6 @@
 """Scenario files (YAML) -> typed, validated scenario. Unknown keys are errors."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -44,6 +44,11 @@ class MessageSpec:
     recipient: str
     priority: Priority
     text: str
+    size_bytes: int = 0  # pad the content to this size (photos, media); 0 = just the text
+
+    def content(self) -> bytes:
+        body = self.text.encode()
+        return body + bytes(max(0, self.size_bytes - len(body)))
 
 
 @dataclass(frozen=True)
@@ -70,7 +75,17 @@ def load_scenario(name_or_path: str) -> Scenario:
 
 
 def _parse(raw: dict[str, Any]) -> Scenario:
-    allowed = {"name", "duration_s", "tick_s", "radio", "nodes", "endpoints", "messages", "faults"}
+    allowed = {
+        "name",
+        "duration_s",
+        "tick_s",
+        "radio",
+        "nodes",
+        "endpoints",
+        "messages",
+        "workload",
+        "faults",
+    }
     _keys(raw, "scenario", allowed)
     nodes = tuple(_node(n) for n in raw["nodes"])
     node_ids = {n.config.node_id for n in nodes}
@@ -83,13 +98,23 @@ def _parse(raw: dict[str, Any]) -> Scenario:
         radio=RadioParams(**raw.get("radio", {})),
         nodes=nodes,
         endpoints=endpoints,
-        messages=tuple(_message(m, names) for m in raw.get("messages") or []),
+        messages=tuple(
+            sorted(
+                [_message(m, names) for m in raw.get("messages") or []]
+                + [m for w in raw.get("workload") or [] for m in _workload(w, names)],
+                key=lambda m: m.at_s,
+            )
+        ),
         faults=tuple(FaultSpec.parse(f, node_ids) for f in raw.get("faults") or []),
     )
 
 
 def _node(raw: dict[str, Any]) -> NodeSpec:
-    _keys(raw, f"node {raw.get('id')}", {"id", "role", "sa", "at", "route", "power", "hostile"})
+    _keys(
+        raw,
+        f"node {raw.get('id')}",
+        {"id", "role", "sa", "at", "route", "power", "hostile", "capacity_mb"},
+    )
     hostile = raw.get("hostile") or {}
     _keys(hostile, f"hostile of {raw['id']}", {"attacks", "registered"})
     attacks = frozenset(hostile.get("attacks", []))
@@ -101,6 +126,8 @@ def _node(raw: dict[str, Any]) -> NodeSpec:
         _keys(battery, f"power of {raw['id']}", {"kind", "capacity_wh", "load_w", "solar_peak_w"})
         Battery(**battery)  # validate now
     config = NodeConfig(raw["id"], Role(raw["role"]), raw.get("sa"))
+    if "capacity_mb" in raw:
+        config = replace(config, capacity_bytes=int(float(raw["capacity_mb"]) * 1024 * 1024))
     if ("at" in raw) == ("route" in raw):
         raise ValueError(f"node {raw['id']}: give exactly one of 'at' or 'route'")
     if "at" in raw:
@@ -124,7 +151,7 @@ def _endpoint(raw: dict[str, Any], node_ids: set[str]) -> EndpointSpec:
 
 
 def _message(raw: dict[str, Any], names: set[str]) -> MessageSpec:
-    _keys(raw, "message", {"at_s", "from", "to", "priority", "text"})
+    _keys(raw, "message", {"at_s", "from", "to", "priority", "text", "size_bytes"})
     for who in (raw["from"], raw["to"]):
         if who not in names:
             raise ValueError(f"message refers to unknown endpoint {who}")
@@ -134,7 +161,30 @@ def _message(raw: dict[str, Any], names: set[str]) -> MessageSpec:
         recipient=raw["to"],
         priority=Priority[raw["priority"]],
         text=str(raw["text"]),
+        size_bytes=int(raw.get("size_bytes", 0)),
     )
+
+
+def _workload(raw: dict[str, Any], names: set[str]) -> list[MessageSpec]:
+    """A periodic message stream: every `every_s` from `start_s` until `end_s`."""
+    _keys(
+        raw,
+        "workload",
+        {"from", "to", "priority", "text", "size_bytes", "every_s", "start_s", "end_s"},
+    )
+    start, every, end = float(raw.get("start_s", 0)), float(raw["every_s"]), float(raw["end_s"])
+    if every <= 0:
+        raise ValueError("workload every_s must be positive")
+    base: dict[str, Any] = {k: raw[k] for k in ("from", "to", "priority") if k in raw}
+    out: list[MessageSpec] = []
+    i = 0
+    while start + i * every <= end:
+        msg: dict[str, Any] = {**base, "at_s": start + i * every, "text": f"{raw['text']} #{i + 1}"}
+        if "size_bytes" in raw:
+            msg["size_bytes"] = raw["size_bytes"]
+        out.append(_message(msg, names))
+        i += 1
+    return out
 
 
 def _point(p: list[float]) -> tuple[float, float]:

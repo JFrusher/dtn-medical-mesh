@@ -54,7 +54,7 @@ def run(scenario: Scenario, seed: int, data_dir: Path, echo: bool = False) -> Ru
     publish_directory(world, endpoints)
 
     def send(m: MessageSpec) -> None:
-        endpoints[m.sender].send(m.recipient, m.text.encode(), m.priority)
+        endpoints[m.sender].send(m.recipient, m.content(), m.priority)
         log(scheduler.now, f"SENT {m.sender} -> {m.recipient} ({m.priority.name})")
 
     for m in scenario.messages:
