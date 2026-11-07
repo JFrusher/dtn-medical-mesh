@@ -58,6 +58,7 @@ from node.pki import (
     sign_doc,
     valid,
 )
+from node.summary import Bloom
 
 T_SHARDS = "shards"
 T_ACKS = "acks"
@@ -122,7 +123,10 @@ class NodeCore:
         self.delivered: set[bytes] = set(records.get(T_DELIVERED, {}))
         self.used_bytes = sum(len(s.data) for s in self.shards.values())
         self.dropped = Counter[str]()
-        self.peer_has: dict[str, set[bytes]] = {}  # connected peers' shard IDs, from their summary
+        # Per connected (authenticated) peer: its Bloom summary, plus the shard and ACK IDs we
+        # know it holds because we exchanged them or it listed them exactly.
+        self.peer_bloom: dict[str, Bloom] = {}
+        self.peer_has: dict[str, set[bytes]] = {}
         self.peer_acks: dict[str, set[bytes]] = {}
         self.peer_certs: dict[str, set[str]] = {}
         self.peer_docs: dict[str, dict[str, int]] = {}
@@ -134,7 +138,13 @@ class NodeCore:
             case ContactUp(radio=RadioKind.WIFI):
                 return [self._send(event.peer_id, self._summary(event.peer_id))]
             case ContactDown(radio=RadioKind.WIFI):
-                for table in (self.peer_has, self.peer_acks, self.peer_certs, self.peer_docs):
+                for table in (
+                    self.peer_bloom,
+                    self.peer_has,
+                    self.peer_acks,
+                    self.peer_certs,
+                    self.peer_docs,
+                ):
                     table.pop(event.peer_id, None)
                 return []
             case FrameReceived(radio=RadioKind.WIFI):
@@ -161,8 +171,9 @@ class NodeCore:
                 if peer_cert is None:
                     self.dropped["unauthenticated_peer"] += 1
                     return []
-                self.peer_has[peer_id] = {_bytes(i) for i in msg["ids"]}
-                self.peer_acks[peer_id] = {_bytes(i) for i in msg["acks"]}
+                self.peer_bloom[peer_id] = Bloom.decode(_bytes(msg["bloom"]))
+                self.peer_has[peer_id] = set()
+                self.peer_acks[peer_id] = set()
                 self.peer_certs[peer_id] = {str(i) for i in msg["certs"]}
                 docs = msg["docs"]
                 if not isinstance(docs, dict):
@@ -186,9 +197,9 @@ class NodeCore:
 
     def _summary(self, peer_id: str) -> dict[str, object]:
         """Opening message: what we hold, plus proof we hold our certificate's key (§8.2)."""
+        held = [b"s" + i for i in self.shards] + [b"a" + a for a in self.acks]
         body = {
-            "ids": sorted(self.shards),
-            "acks": sorted(self.acks),
+            "bloom": Bloom.of(held).encode(),
             "certs": sorted(self.certs),
             "docs": {k: d.seq for k, d in sorted(self.docs.items())},
         }
@@ -264,13 +275,16 @@ class NodeCore:
     def _offer(self, peer_id: str) -> list[Action]:
         """Send a connected peer every revocation, ACK and shard it lacks, most important first."""
         actions = self._docs_for(peer_id)
+        bloom = self.peer_bloom[peer_id]
         known_acks = self.peer_acks[peer_id]
-        new_acks = [self.acks[a] for a in sorted(self.acks.keys() - known_acks)]
+        new_acks = [
+            self.acks[a] for a in sorted(self.acks) if a not in known_acks and b"a" + a not in bloom
+        ]
         known_acks.update(a.bundle_id for a in new_acks)
         actions += self._certs_for(peer_id, {a.signer for a in new_acks})
         actions += [self._send(peer_id, {"t": "ack", "a": encode_ack(a)}) for a in new_acks]
         has = self.peer_has[peer_id]
-        missing = [s for i, s in self.shards.items() if i not in has]
+        missing = [s for i, s in self.shards.items() if i not in has and b"s" + i not in bloom]
         missing.sort(key=lambda s: (s.header.priority, s.header.created, s.shard_id))
         has.update(s.shard_id for s in missing)
         actions += self._certs_for(peer_id, {s.header.injector for s in missing})
@@ -528,7 +542,7 @@ class NodeCore:
 
 
 def _summary_signing_bytes(msg: Mapping[str, object]) -> bytes:
-    body = cbor2.dumps([msg["ids"], msg["acks"], msg["certs"], msg["docs"]])
+    body = cbor2.dumps([msg["bloom"], msg["certs"], msg["docs"]])
     return _SUMMARY_CONTEXT + cbor2.dumps([msg["from"], msg["to"], msg["time"], body])
 
 

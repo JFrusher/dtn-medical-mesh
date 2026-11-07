@@ -1,6 +1,7 @@
 import pytest
 
 from node.pki import Role, encode_cert
+from node.summary import Bloom
 from validation.node.helpers import (
     NOW,
     frame,
@@ -37,7 +38,7 @@ def test_unauthenticated_peer_gets_nothing(case: str) -> None:
     elif case == "stale":
         msg["time"] = NOW - 4 * 3600
     elif case == "tampered":
-        msg["ids"] = [b"forged"]
+        msg["bloom"] = Bloom.of([b"forged"]).encode()
     elif case == "revoked":
         node.revoked = frozenset({"P"})
     assert not offered(node, msg)

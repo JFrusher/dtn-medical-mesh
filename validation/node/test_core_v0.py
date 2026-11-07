@@ -3,6 +3,7 @@ import cbor2
 from node.bundle import Priority, decode_bundle, encode_shard
 from node.events import ContactUp, Deliver, FrameReceived, Store
 from node.pki import Role
+from node.summary import Bloom
 from validation.node.helpers import (
     W,
     connect,
@@ -26,7 +27,8 @@ def test_inject_stores_every_shard_and_contact_sends_summary() -> None:
     assert [a.key for a in actions[1:] if isinstance(a, Store)] == [s.shard_id for s in shards]
     up = clinic.handle(ContactUp(mono=1, wall=None, peer_id="M", radio=W))
     [summary] = frames(up)
-    assert summary["ids"] == sorted(s.shard_id for s in shards) and summary["acks"] == []
+    bloom = Bloom.decode(summary["bloom"])  # type: ignore[arg-type]
+    assert all(b"s" + s.shard_id in bloom for s in shards)
 
 
 def test_offers_only_missing_shards_most_urgent_first() -> None:

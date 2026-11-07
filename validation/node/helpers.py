@@ -14,6 +14,7 @@ from node.core import T_CERTS, NodeConfig, NodeCore, _summary_signing_bytes
 from node.events import Action, ContactUp, FrameReceived, Inject, SendFrame
 from node.hw.radio import RadioKind
 from node.pki import HUB_CERT_LIFETIME_S, ROOT, Identity, Role, encode_cert, issue
+from node.summary import Bloom
 from simulation.virtual_hw import SIM_EPOCH, SeededEntropy, SoftwareSecureElement
 
 W = RadioKind.WIFI
@@ -76,8 +77,7 @@ def summary_from(
     me = identity(peer, Role.HUB, "SA_H") if peer == "H" else identity(peer, Role.MULE, None)
     msg: dict[str, object] = {
         "t": "summary",
-        "ids": sorted(ids),
-        "acks": sorted(acks),
+        "bloom": Bloom.of([b"s" + i for i in ids] + [b"a" + a for a in acks]).encode(),
         "certs": [],
         "docs": {},
         "from": encode_cert(me.cert),
