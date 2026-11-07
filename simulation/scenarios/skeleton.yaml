@@ -1,0 +1,22 @@
+# Walking skeleton: one clinic, one hospital 5 km away, one ambulance shuttling between them.
+name: skeleton
+duration_s: 7200
+tick_s: 1
+radio:
+  wifi_range_m: 100
+nodes:
+  - {id: CLINIC_01, role: site, sa: SA_CLINIC_01, at: [0, 0]}
+  - {id: HOSPITAL, role: hub, sa: SA_HOSPITAL, at: [5000, 0]}
+  - id: AMBULANCE_01
+    role: mule
+    route: {waypoints: [[0, 0], [5000, 0]], speed: 15, dwell_s: 300, start_s: 120}
+endpoints:
+  - {name: clinic, node: CLINIC_01}
+  - {name: hospital, node: HOSPITAL}
+messages:
+  - at_s: 60
+    from: clinic
+    to: hospital
+    priority: ROUTINE
+    lifetime_s: 259200
+    text: "Referral: 54F, 3 days fever, suspected malaria, RDT positive."
