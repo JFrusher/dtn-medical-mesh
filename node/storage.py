@@ -25,6 +25,10 @@ CREATE TABLE IF NOT EXISTS records (
 class Storage:
     def __init__(self, path: Path) -> None:
         self._conn = sqlite3.connect(path, isolation_level=None)
+        mode = self._conn.execute("PRAGMA journal_mode = WAL").fetchone()[0]
+        if mode != "wal":
+            raise RuntimeError(f"could not enable WAL (got {mode!r})")
+        self._conn.execute("PRAGMA synchronous = FULL")
         self._conn.execute(_SCHEMA)
 
     def apply(self, action: Store | Delete) -> None:
