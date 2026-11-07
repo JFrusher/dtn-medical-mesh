@@ -27,6 +27,8 @@ def make_shards(
     created: int = 1,
     size: int = 4096,
 ) -> list[Shard]:
+    """`created` is an offset in ms from the test clock's start, so test bundles are fresh."""
+    created = NOW * 1000 + created
     cls = PRIORITY_CLASSES[priority]
     data = hashlib.shake_256(tag).digest(size)  # varied, so no two blocks are equal
     blocks = erasure.encode(data, cls.k, cls.m)
@@ -50,7 +52,7 @@ def make_shards(
 
 
 def records(*bundles: list[Shard]) -> dict[str, dict[bytes, bytes]]:
-    return {"shards": {s.shard_id: encode_shard(s) for b in bundles for s in b}}
+    return {"shards": {s.shard_id: cbor2.dumps([encode_shard(s), 0]) for b in bundles for s in b}}
 
 
 def frames(actions: list[Action]) -> list[dict[str, object]]:
@@ -90,7 +92,7 @@ def summary_from(
 
 
 def shard_msg(s: Shard) -> dict[str, object]:
-    return {"t": "shard", "s": encode_shard(s)}
+    return {"t": "shard", "s": encode_shard(s), "age": 0}
 
 
 def inject(node: NodeCore, shards: list[Shard]) -> list[Action]:

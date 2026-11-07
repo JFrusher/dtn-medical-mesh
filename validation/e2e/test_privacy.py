@@ -1,6 +1,7 @@
 from dataclasses import asdict
 from pathlib import Path
 
+import cbor2
 import pytest
 
 from node.bundle import decode_shard
@@ -45,5 +46,5 @@ def test_only_the_recipient_opens_and_headers_name_no_endpoint(tmp_path: Path) -
     blobs = early.world.nodes["HOSPITAL"].storage.load()["shards"].values()
     assert blobs
     for blob in blobs:
-        header = str(asdict(decode_shard(blob).header))
+        header = str(asdict(decode_shard(cbor2.loads(blob)[0]).header))  # record: [shard, age]
         assert not any(name in header for name in ("ward-a", "ward-b", "hospital"))

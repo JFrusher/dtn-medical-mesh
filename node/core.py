@@ -80,6 +80,7 @@ T_LEDGER = "ledger"  # receipts this node issued, hash-chained, keyed by sequenc
 T_OUTBOX = "receipt_outbox"  # issued receipts not yet handed to their sender
 T_RECEIPTS_IN = "receipts_in"  # receipts others gave this node, for audit
 RECEIPT_BATCH_S = 0.5
+SWEEP_EVERY_S = 60.0  # purge expired shards at most this often, on the next event
 SUMMARY_MAX_SKEW_S = 3600
 EXACT_AFTER_S = 2.0  # send exact lists if the link outlives the first transfer burst (§8.3)
 _SUMMARY_CONTEXT = b"dtn-medical-mesh/v1/summary"
@@ -141,9 +142,16 @@ class NodeCore:
         self._unreceipted: dict[str, list[bytes]] = defaultdict(list)  # sender -> shard IDs
         self.receipts_in = len(records.get(T_RECEIPTS_IN, {}))
         self._injected_at: dict[str, deque[float]] = defaultdict(deque)  # per injector cert
-        self.shards: dict[bytes, Shard] = {
-            k: decode_shard(v) for k, v in records.get(T_SHARDS, {}).items()
-        }
+        self.shards: dict[bytes, Shard] = {}
+        # Bundle Age (§8.9): age of our copy when we stored it, and our monotonic time then.
+        # After a reboot dwell counting restarts, so age is a lower bound; the HLC check
+        # catches the rest.
+        self._age_at: dict[bytes, tuple[int, float]] = {}
+        for k, v in records.get(T_SHARDS, {}).items():
+            encoded, age_ms = cbor2.loads(v)
+            self.shards[k] = decode_shard(encoded)
+            self._age_at[k] = (age_ms, 0.0)
+        self._last_sweep = -SWEEP_EVERY_S
         self.acks: dict[bytes, Ack] = {k: decode_ack(v) for k, v in records.get(T_ACKS, {}).items()}
         self.origin: set[bytes] = set(records.get(T_ORIGIN, {}))
         self.delivered: set[bytes] = set(records.get(T_DELIVERED, {}))
@@ -163,6 +171,11 @@ class NodeCore:
         self._rtc_ok = event.wall is not None
         self.hlc.tick(int(event.wall * 1000) if event.wall is not None else None)
         actions = self._handle(event)
+        if self._mono - self._last_sweep >= SWEEP_EVERY_S:
+            self._last_sweep = self._mono
+            actions += [
+                self._remove_shard(s) for s in list(self.shards.values()) if self._expired(s)
+            ]
         if any(isinstance(a, Store | Delete) for a in actions):
             actions.append(Store(table=T_META, key=b"hlc", value=self.hlc.value.to_bytes(16)))
         return actions
@@ -255,7 +268,10 @@ class NodeCore:
             if kind == "cert":
                 return self._on_cert(decode_cert(_bytes(msg["c"])))
             if kind == "shard":
-                return self._accept(decode_shard(_bytes(msg["s"])), source=peer_id)
+                age = msg["age"]
+                if not isinstance(age, int) or age < 0:
+                    raise FormatError("shard age must be a non-negative integer")
+                return self._accept(decode_shard(_bytes(msg["s"])), source=peer_id, age_ms=age)
             if kind == "ack":
                 return self._on_ack(decode_ack(_bytes(msg["a"])), source=peer_id)
             raise FormatError(f"unknown frame type {kind!r}")
@@ -362,7 +378,11 @@ class NodeCore:
         actions += self._certs_for(peer_id, {a.signer for a in new_acks})
         actions += [self._send(peer_id, {"t": "ack", "a": encode_ack(a)}) for a in new_acks]
         has = self.peer_has[peer_id]
-        missing = [s for i, s in self.shards.items() if i not in has and b"s" + i not in bloom]
+        missing = [
+            s
+            for i, s in self.shards.items()
+            if i not in has and b"s" + i not in bloom and not self._expired(s)
+        ]
         peer_sa = self.peer_sa.get(peer_id)
 
         def still_needed_by_peer(h: Header) -> int:
@@ -383,7 +403,8 @@ class NodeCore:
         has.update(s.shard_id for s in missing)
         actions += self._certs_for(peer_id, {s.header.injector for s in missing})
         return actions + [
-            self._send(peer_id, {"t": "shard", "s": encode_shard(s)}) for s in missing
+            self._send(peer_id, {"t": "shard", "s": encode_shard(s), "age": self._age_ms(s)})
+            for s in missing
         ]
 
     def _docs_for(self, peer_id: str) -> list[Action]:
@@ -495,7 +516,7 @@ class NodeCore:
             actions += self._store_shard(s)
         return actions + self._after_new_shards(bid)
 
-    def _accept(self, shard: Shard, source: str | None) -> list[Action]:
+    def _accept(self, shard: Shard, source: str | None, age_ms: int = 0) -> list[Action]:
         sid, bid = shard.shard_id, shard.header.bundle_id
         if source in self.peer_has:
             self.peer_has[source].add(sid)
@@ -507,6 +528,9 @@ class NodeCore:
         if not self._header_ok(shard.header):
             self.dropped["bad_signature"] += 1
             return []
+        if self._expired(shard, age_ms):
+            self.dropped["expired"] += 1
+            return []
         if not self._shards_of(bid) and not self._within_rate(shard.header.injector):
             self.dropped["rate_limited"] += 1
             return []
@@ -514,7 +538,7 @@ class NodeCore:
         if evictions is None:
             self.dropped["full"] += 1  # refusing is safe: no receipt, so the sender keeps it
             return []
-        actions = evictions + self._store_shard(shard)
+        actions = evictions + self._store_shard(shard, age_ms)
         if source is not None:
             if source not in self._unreceipted:
                 at = self._mono + RECEIPT_BATCH_S
@@ -594,15 +618,18 @@ class NodeCore:
         free = self.config.capacity_bytes - self.used_bytes
         if size <= free:
             return []
-        candidates = sorted(
+        expired = sorted((s for s in self.shards.values() if self._expired(s)), key=_order)
+        lower = sorted(
             (
                 s
                 for s in self.shards.values()
                 if s.header.priority > incoming.header.priority
                 and s.header.bundle_id not in self.origin
+                and not self._expired(s)
             ),
             key=lambda s: (-s.header.priority, s.header.created, s.shard_id),
         )
+        candidates = expired + lower
         victims: list[Shard] = []
         for s in candidates:
             if free >= size:
@@ -624,13 +651,27 @@ class NodeCore:
         times.append(self.clock_s)
         return True
 
-    def _store_shard(self, shard: Shard) -> list[Action]:
+    def _store_shard(self, shard: Shard, age_ms: int = 0) -> list[Action]:
         self.shards[shard.shard_id] = shard
+        self._age_at[shard.shard_id] = (age_ms, self._mono)
         self.used_bytes += len(shard.data)
-        return [Store(table=T_SHARDS, key=shard.shard_id, value=encode_shard(shard))]
+        value = cbor2.dumps([encode_shard(shard), age_ms])
+        return [Store(table=T_SHARDS, key=shard.shard_id, value=value)]
+
+    def _age_ms(self, shard: Shard) -> int:
+        age, since = self._age_at[shard.shard_id]
+        return age + int((self._mono - since) * 1000)
+
+    def _expired(self, shard: Shard, age_ms: int | None = None) -> bool:
+        """The stricter of Bundle Age and HLC time since creation (REQ-TIME-02)."""
+        h = shard.header
+        age = self._age_ms(shard) if age_ms is None else age_ms
+        lifetime_ms = h.lifetime_s * 1000
+        return age > lifetime_ms or self.hlc.wall_ms - h.created > lifetime_ms
 
     def _remove_shard(self, shard: Shard) -> Delete:
         del self.shards[shard.shard_id]
+        del self._age_at[shard.shard_id]
         self.used_bytes -= len(shard.data)
         return Delete(table=T_SHARDS, key=shard.shard_id)
 
@@ -702,6 +743,10 @@ class NodeCore:
 
     def _send(self, peer_id: str, msg: Mapping[str, object]) -> SendFrame:
         return SendFrame(peer_id=peer_id, radio=RadioKind.WIFI, frame=cbor2.dumps(msg))
+
+
+def _order(s: Shard) -> tuple[int, int, bytes]:
+    return (s.header.priority, s.header.created, s.shard_id)
 
 
 def _held(sid: bytes, has: set[bytes], bloom: Bloom) -> bool:

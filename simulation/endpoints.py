@@ -62,7 +62,7 @@ class VirtualEndpoint:
             src_sa=site_sa,
             dst_sa=entry.sa,
             priority=priority,
-            created=int(self.world.scheduler.now * 1000),
+            created=int((SIM_EPOCH + self.world.scheduler.now) * 1000),  # wall-clock ms
         )
         encoded = tuple(encode_shard(s) for s in shards)
         self.world.dispatch(self.site, partial(Inject, shards=encoded))
