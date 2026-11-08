@@ -22,6 +22,7 @@ from interface.telemetry import Telemetry
 STATIC = Path(__file__).parent / "static"
 TICK_S = 0.25  # how often the backend advances and the map refreshes
 IDLE_LOCK_S = 300.0  # a staff session locks after 5 minutes without use (spec §10.2)
+ADMIN = "*admin*"  # session scope of the hub admin console (no endpoint has this name)
 
 
 @dataclass
@@ -79,6 +80,16 @@ class SignIn(BaseModel):
     pin: str
 
 
+class AdminSignIn(BaseModel):
+    operator: str
+    pin: str
+
+
+class AdminAction(BaseModel):
+    action: str
+    target: str = ""
+
+
 class ControlIn(BaseModel):
     speed: float | None = None
     paused: bool | None = None
@@ -93,6 +104,9 @@ class Backend(Protocol):
     def journeys(self) -> list[dict[str, Any]]: ...
     def journey(self, bundle_hex: str) -> dict[str, Any]: ...
     def sign_in(self, endpoint: str, staff: str, pin: str) -> None: ...  # SignInError, LockedOut
+    def admin_sign_in(self, operator: str, pin: str) -> None: ...  # SignInError, LockedOut
+    def admin_state(self) -> dict[str, Any]: ...
+    def admin_act(self, operator: str, action: str, target: str) -> None: ...
     def send(
         self, endpoint: str, msg: MessageIn, attachments: list[tuple[str, str, bytes]], author: str
     ) -> str: ...
@@ -134,6 +148,39 @@ def create_app(backend: Backend) -> FastAPI:
     @app.get("/")
     async def demo() -> FileResponse:
         return FileResponse(STATIC / "demo.html")
+
+    @app.get("/admin")
+    async def admin_page() -> FileResponse:
+        return FileResponse(STATIC / "admin.html")
+
+    @app.post("/api/admin/session")
+    async def admin_sign_in(body: AdminSignIn) -> dict[str, str]:
+        try:
+            backend.admin_sign_in(body.operator, body.pin)
+        except SignInError as e:
+            raise HTTPException(status_code=401, detail="wrong PIN") from e
+        except LockedOut as e:
+            wait = e.until - time.monotonic()
+            raise HTTPException(status_code=429, detail={"retry_after_s": wait}) from e
+        token = secrets.token_urlsafe(24)
+        sessions[token] = Session(ADMIN, body.operator, time.monotonic())
+        return {"token": token, "operator": body.operator}
+
+    @app.get("/api/admin")
+    async def admin_state(authorization: str | None = Header(None)) -> dict[str, Any]:
+        session(ADMIN, authorization)
+        return backend.admin_state()
+
+    @app.post("/api/admin/actions")
+    async def admin_act(
+        body: AdminAction, authorization: str | None = Header(None)
+    ) -> dict[str, str]:
+        s = session(ADMIN, authorization)
+        try:
+            backend.admin_act(s.staff, body.action, body.target)
+        except ValueError as e:
+            raise HTTPException(status_code=422, detail=str(e)) from e
+        return {"ok": "true"}
 
     @app.get("/api/telemetry")
     async def telemetry() -> Telemetry:

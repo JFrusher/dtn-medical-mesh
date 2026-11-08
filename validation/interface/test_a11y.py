@@ -88,3 +88,26 @@ def test_keyboard_only_sign_in_and_referral(tmp_path: Path) -> None:
             )
             browser.close()
         assert small == [], small
+
+
+@pytest.mark.req("REQ-OPS-03", "REQ-APP-07")
+def test_admin_console_revokes_from_the_page_and_passes_axe(tmp_path: Path) -> None:
+    sim = LiveSim(build(load_scenario("skeleton"), 1, tmp_path), speed=600)
+    for url in serve(sim):
+        with sync_playwright() as p:
+            browser = p.chromium.launch()
+            page = browser.new_page(viewport={"width": 1280, "height": 900})
+            page.on("dialog", lambda d: d.accept())  # "signed with your key and logged. Continue?"
+            page.goto(f"{url}/admin")
+            page.locator("#pin").fill(DEMO_PIN)
+            page.get_by_role("button", name="Sign in").click()
+            expect(page.locator("#inventory")).to_contain_text("Ambulance 01")
+            page.locator("[name=action]").select_option("revoke")
+            page.locator("[name=target]").fill("AMBULANCE_01")
+            page.get_by_role("button", name="Do it").click()
+            expect(page.locator("#log")).to_contain_text("Revoke node")
+            expect(page.locator("#inventory")).to_contain_text("revoked")
+            found = violations(page)
+            page.screenshot(path=Path(__file__).parents[2] / "out/admin.png", full_page=True)
+            browser.close()
+        assert found == [], found

@@ -22,6 +22,7 @@ from interface.telemetry import Telemetry
 from node.bundle import Priority
 from node.config import PRIORITY_CLASSES
 from node.core import NodeCore
+from simulation.admin import Admin
 from simulation.mobility import Route
 from simulation.runner import RunResult, build
 from simulation.scenario import load_scenario
@@ -51,6 +52,7 @@ class LiveSim:
         self.r = result
         self.speed = speed
         self.paused = False
+        self.admin = Admin(result, DEMO_PIN)
         self.keystores: dict[str, KeyStore] = {}
         self.registers: dict[str, list[Patient]] = {}
         for name, e in result.endpoints.items():
@@ -155,6 +157,16 @@ class LiveSim:
             }
             for e in self.r.endpoints.values()
         ]
+
+    def admin_sign_in(self, operator: str, pin: str) -> None:
+        self.admin.sign_in(operator, pin)
+
+    def admin_state(self) -> dict[str, Any]:
+        return self.admin.state()
+
+    def admin_act(self, operator: str, action: str, target: str) -> None:
+        self.admin.act(operator, action, target)
+        self.r.log.append(f"[ADMIN] {operator}: {action} {target}")
 
     def sign_in(self, endpoint: str, staff: str, pin: str) -> None:
         keys = self.keystores[endpoint].unlock(staff, pin, time.monotonic())

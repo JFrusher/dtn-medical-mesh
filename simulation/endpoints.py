@@ -126,8 +126,8 @@ class VirtualEndpoint:
 
     def update_directory(self, doc: bytes, issuer: bytes) -> None:
         now = int(SIM_EPOCH + self.world.scheduler.now)
-        for entry in verified_entries(doc, issuer, self.root_pubkey, now):
-            self.directory[entry.name] = entry
+        # the newest signed directory replaces the old one: a removed laptop drops out
+        self.directory = {e.name: e for e in verified_entries(doc, issuer, self.root_pubkey, now)}
 
     def _on_delivered(self, bundle_id: bytes) -> None:
         self.sent[bundle_id].delivered_ms = self._now_ms()

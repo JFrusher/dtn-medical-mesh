@@ -90,3 +90,5 @@ Format: `REQ-<AREA>-<NN>`. Spec references are to `PROJECT_SPEC.md`.
 | ID | Requirement | Spec |
 |---|---|---|
 | REQ-OPS-01 | Every node writes a signed health report (battery, temperature, storage, contacts, refusals, version, status light) every 15 minutes; reports reach the hub over the mesh, and forged or stale ones are refused. | §9.3 |
+| REQ-OPS-02 | The hub's admin console shows every node's latest health, flags nodes not seen recently, and shows arrival times per clinic, messages not delivered and refusals by reason. | §10.6 |
+| REQ-OPS-03 | Revoking a node, removing a laptop from the directory, publishing the directory and provisioning a spare node are done from the console; each is signed with the operator's own key and logged. | §9.4, §10.6 |

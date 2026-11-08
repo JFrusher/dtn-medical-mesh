@@ -187,11 +187,8 @@ class World:
         for node in self.nodes.values():
             node.boot(self.scheduler.now)
         self.scheduler.after(0, self._tick)
-        every = group("node")["health_every_s"]
         for i, node_id in enumerate(sorted(self.nodes)):  # staggered so reports don't coincide
-            self.scheduler.after(
-                every * (i + 1) / (len(self.nodes) + 1), partial(self._health, node_id)
-            )
+            self.schedule_health(node_id, (i + 1) / (len(self.nodes) + 1))
         if any(n.battery for n in self.nodes.values()):
             self.scheduler.after(0, self._power_tick)
 
@@ -214,6 +211,12 @@ class World:
             elif not node.up and b.pct >= POWER_ON_PCT:
                 self.power_on(node)
         self.scheduler.after(dt, self._power_tick)
+
+    def schedule_health(self, node_id: str, phase: float = 0.5) -> None:
+        """Health ticks every interval, starting `phase` of an interval from now."""
+        self.scheduler.after(
+            group("node")["health_every_s"] * phase, partial(self._health, node_id)
+        )
 
     def _health(self, node_id: str) -> None:
         node = self.nodes[node_id]

@@ -53,6 +53,16 @@ def provision(
     return root
 
 
+def provision_one(node: SimNode, hub: SimNode) -> None:
+    """A spare node brought to the hub after the network started: the hub issues its cert."""
+    c, issuer = node.config, hub.core.identity
+    now = int(hub.core.clock_s)
+    cert = issue(
+        issuer.sign, issuer.cert.cert_id, c.node_id, c.role, c.sa, node.se.public_key(), now
+    )
+    node.identity = Identity(cert, issuer.cert, issuer.root_pubkey, node.se.sign)
+
+
 def publish_directory(world: World, endpoints: dict[str, VirtualEndpoint]) -> None:
     """The first hub publishes the directory; endpoints get it at registration, in person."""
     hub = next(n for n in world.nodes.values() if n.config.role is Role.HUB)

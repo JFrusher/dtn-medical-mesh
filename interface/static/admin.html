@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Satchel admin</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body class="admin">
+  <header class="bar">
+    <h1 data-i18n="admin.title"></h1>
+    <a href="/" data-i18n="admin.map"></a>
+    <span class="who-admin muted" id="who"></span>
+    <label class="lang"><span class="sr-only" data-i18n="lang.label"></span><select id="lang"></select></label>
+  </header>
+  <main id="admin" class="admin-main"></main>
+  <script type="module">
+    import { Admin } from "/static/admin.js";
+    import { LANGUAGES, savedLanguage, setLanguage } from "/static/i18n.js";
+    const lang = document.getElementById("lang");
+    for (const [code, name] of Object.entries(LANGUAGES)) lang.add(new Option(name, code));
+    lang.onchange = () => setLanguage(lang.value);
+    document.addEventListener("languagechange", () => { lang.value = document.documentElement.lang; });
+    await setLanguage(savedLanguage());
+    new Admin(document.getElementById("admin"), document.getElementById("who"));
+  </script>
+</body>
+</html>
