@@ -140,6 +140,9 @@ export class NetMap {
     const g = document.createElementNS(NS, "g");
     const place = n.role === "hub" || n.role === "site";
     let shape;
+    if (n.light === "amber" || n.light === "red") {  // only lights that need someone get a halo
+      g.append(el("circle", { cx: x, cy: y, r: 12, class: `light-${n.light}` }));
+    }
     if (place) {
       const r = n.role === "hub" ? 8 : 6;
       shape = el("rect", { x: x - r, y: y - r, width: 2 * r, height: 2 * r, rx: 1.5, class: n.up ? "place" : "off" });
@@ -150,7 +153,8 @@ export class NetMap {
     }
     const title = document.createElementNS(NS, "title");
     title.textContent = [pretty(n.id) + (n.hostile ? ` ${tr("map.attacker")}` : ""),
-      n.up ? null : tr("map.powered_off"), n.shards ? tr("map.holding", { n: n.shards }) : null,
+      n.up ? null : tr("map.powered_off"), n.light ? tr("map.light", { state: tr(`light.${n.light}`) }) : null,
+      n.shards ? tr("map.holding", { n: n.shards }) : null,
       n.battery_pct == null ? null : tr("map.battery", { pct: Math.round(n.battery_pct) })].filter(Boolean).join(", ");
     g.append(shape, title);
     // places label to the right, carriers to the left, so a van parked at a clinic stays readable

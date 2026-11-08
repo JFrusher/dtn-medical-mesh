@@ -94,3 +94,4 @@ Format: `REQ-<AREA>-<NN>`. Spec references are to `PROJECT_SPEC.md`.
 | REQ-OPS-03 | Revoking a node, removing a laptop from the directory, publishing the directory and provisioning a spare node are done from the console; each is signed with the operator's own key and logged. | §9.4, §10.6 |
 | REQ-OPS-04 | A node starts only from a `node.toml` signed at provisioning by its issuing hub (or, for a hub, the root); an unsigned, altered or wrongly signed file is refused. | §9.3 |
 | REQ-OPS-05 | Software updates install only if signed by the offline release key, only for the roles the hub has staged, only on external power with no contact open; a version that fails to report healthy is rolled back and never retried. | §9.5 |
+| REQ-OPS-06 | Each node drives a status light: green healthy, blue carrying, blue flash exchanging, amber nearly full or a hub overdue, red revoked, expired or power failing; the map shows amber and red. | §11.4 |

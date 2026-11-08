@@ -183,3 +183,26 @@ def test_triage_puts_critical_first_and_results_reach_the_clinic(
         expect(left.locator(".msg.in", has_text="Result: Hb, 8.1 g/dL")).to_be_visible(
             timeout=20_000
         )
+
+
+@pytest.mark.req("REQ-OPS-06")
+def test_map_marks_nodes_whose_light_needs_attention(tmp_path: Path, page: Page) -> None:
+    sim = LiveSim(build(load_scenario("skeleton"), 1, tmp_path), speed=60)
+    sim.control(None, True)  # paused: our frame stays on screen
+    for url in serve(sim):
+        page.goto(url)
+        expect(page.locator("#overlay g")).to_have_count(3)
+        assert page.locator("#overlay .light-amber, #overlay .light-red").count() == 0
+        page.evaluate(
+            """async () => {
+                const t = await (await fetch('/api/telemetry')).json();
+                t.nodes[0].light = 'amber'; t.nodes[1].light = 'red';
+                window.render(t);
+            }"""
+        )
+        expect(page.locator("#overlay .light-amber")).to_have_count(1)
+        expect(page.locator("#overlay .light-red")).to_have_count(1)
+        tips = page.evaluate(
+            "[...document.querySelectorAll('#overlay title')].map(t => t.textContent)"
+        )
+        assert any("light: needs attention" in t for t in tips)

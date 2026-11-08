@@ -209,5 +209,6 @@
   "time.min_ago": "dak {m} zilizopita",
   "time.h_ago": "saa {h} zilizopita",
   "admin.no_arrivals": "Bado hakuna kilichofika hospitalini.",
-  "admin.do.stage_update": "Sambaza sasisho 0.3.0 (lengo: relay, relay,mule au all)"
+  "admin.do.stage_update": "Sambaza sasisho 0.3.0 (lengo: relay, relay,mule au all)",
+  "map.light": "taa: {state}"
 }

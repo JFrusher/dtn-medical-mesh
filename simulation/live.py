@@ -109,6 +109,7 @@ class LiveSim:
                     "used_bytes": n.core.used_bytes if n.up else 0,
                     "route": list(n.mobility.waypoints) if isinstance(n.mobility, Route) else None,
                     "hostile": n.core_class is not NodeCore,
+                    "light": n.core.status_light() if n.up else None,
                 }
             )
         statuses = [e.status(b) for e in self.r.endpoints.values() for b in e.sent]

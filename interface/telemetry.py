@@ -16,6 +16,7 @@ class NodeView(TypedDict):
     used_bytes: int
     route: list[tuple[float, float]] | None  # waypoints of a moving node, for drawing its road
     hostile: bool  # emulator only: an attacker injected by the scenario
+    light: str | None  # status light (spec §11.4): green, blue, blue-flash, amber, red; None = off
 
 
 # functional form because "from" is a Python keyword; bundles are bundle IDs (hex)

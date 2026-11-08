@@ -61,6 +61,8 @@ button, select, textarea, input { font: inherit; color: inherit; }
 #overlay .load { fill: var(--accent); font-weight: 700; }
 #overlay .piece { fill: var(--accent); stroke: var(--surface); stroke-width: 1; }
 #overlay .piece.mine, #overlay .holder-label { fill: var(--transit); }
+#overlay .light-amber { fill: none; stroke: #e8a10c; stroke-width: 3; }
+#overlay .light-red { fill: none; stroke: #d62828; stroke-width: 3; }
 #overlay .holder { fill: none; stroke: var(--transit); stroke-width: 2; }
 #overlay .holder-label { font-weight: 700; }
 .maplibregl-ctrl-attrib { font: 11px var(--font) !important; }

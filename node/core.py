@@ -191,7 +191,9 @@ class NodeCore:
         self.peer_health: dict[str, dict[str, int]] = {}
         self._contacts_since_report = 0
         hub_seen = meta.get(b"hub_seen")
-        self.hub_seen_s = int.from_bytes(hub_seen) / 1000 if hub_seen else None
+        # provisioning (and each renewal) happens at a hub, so the cert's issue time counts
+        issued = float(self.identity.cert.not_before)
+        self.hub_seen_s = max(int.from_bytes(hub_seen) / 1000, issued) if hub_seen else issued
         self._battery_pct: float | None = None  # from the last health tick
         self.pkgs: dict[bytes, bytes] = dict(records.get(T_PKG, {}))
         self.peer_pkgs: dict[str, set[bytes]] = {}
@@ -527,8 +529,8 @@ class NodeCore:
             or (self._battery_pct is not None and self._battery_pct < 10)
         ):
             return "red"
-        hub_overdue = self.config.role is not Role.HUB and (
-            self.hub_seen_s is None or self.clock_s - self.hub_seen_s > HUB_DUE_S
+        hub_overdue = (
+            self.config.role is not Role.HUB and self.clock_s - self.hub_seen_s > HUB_DUE_S
         )
         if self.used_bytes >= NEARLY_FULL * self.config.capacity_bytes or hub_overdue:
             return "amber"
