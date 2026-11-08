@@ -242,8 +242,13 @@ class World:
     def position(self, node_id: str) -> tuple[float, float]:
         return self.nodes[node_id].mobility.position(self.scheduler.now)
 
-    def dispatch(self, node: SimNode, event_factory: Callable[..., Event]) -> None:
-        """Build an event stamped with the node's own clocks, run it, apply the actions in order."""
+    def dispatch(
+        self, node: SimNode, event_factory: Callable[..., Event], *, answer_now: bool = False
+    ) -> None:
+        """Build an event stamped with the node's own clocks, run it, apply the actions in order.
+
+        answer_now: a laptop's API call (spec §9.6) gets the core's answer, or its refusal as an
+        exception, straight away; its actions still take effect after work already queued."""
         if not node.up:
             return  # a powered-off node hears nothing
         try:
@@ -251,7 +256,7 @@ class World:
         except RtcError:
             wall = None
         now = self.scheduler.now
-        if node.busy_until > now:  # still working on an earlier event: wait in line
+        if node.busy_until > now and not answer_now:  # busy with an earlier event: wait in line
             self.scheduler.schedule(node.busy_until, partial(self.dispatch, node, event_factory))
             return
         event = event_factory(mono=now - node.boot_at, wall=wall)
@@ -265,7 +270,7 @@ class World:
             received,
             actions,
         )
-        node.busy_until = now + cost
+        node.busy_until = max(now, node.busy_until) + cost
         self.busy_s[node.id] += cost
         written = flash_bytes(actions)
         if written:
@@ -278,7 +283,7 @@ class World:
                 for action in actions:
                     self._apply(node, action)
 
-        self.scheduler.after(cost, take_effect)
+        self.scheduler.schedule(node.busy_until, take_effect)
 
     def _apply(self, node: SimNode, action: Action) -> None:
         match action:

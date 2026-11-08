@@ -8,6 +8,7 @@ from functools import partial
 from pathlib import Path
 
 from node.config import PRIORITY_CLASSES
+from node.core import NotInDirectory
 from simulation import faults
 from simulation.compute import board
 from simulation.endpoints import VirtualEndpoint
@@ -81,7 +82,11 @@ def build(scenario: Scenario, seed: int, data_dir: Path, echo: bool = False) -> 
     publish_directory(world, endpoints)
 
     def send(m: MessageSpec) -> None:
-        endpoints[m.sender].send_message(m.recipient, m.message(), m.priority)
+        try:
+            endpoints[m.sender].send_message(m.recipient, m.message(), m.priority)
+        except NotInDirectory:
+            log(scheduler.now, f"REFUSED {m.sender}: laptop removed from the directory")
+            return
         log(scheduler.now, f"SENT {m.sender} -> {m.recipient} ({m.priority.name})")
 
     for m in scenario.messages:

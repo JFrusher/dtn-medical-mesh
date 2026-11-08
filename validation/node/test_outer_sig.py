@@ -1,11 +1,15 @@
 from dataclasses import replace
 
 import pytest
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
-from node.bundle import Header, Priority
-from node.pki import Role, encode_cert
+from node.bundle import Header, Priority, encode_shard
+from node.core import NotInDirectory, inject_signing_bytes
+from node.events import Inject
+from node.pki import Role, encode_cert, sign_doc
 from validation.node.helpers import (
     CLINIC,
+    TEST_LAPTOP,
     connect,
     frame,
     frames,
@@ -66,7 +70,7 @@ def test_site_signs_on_inject_and_sends_certs_before_shards() -> None:
     connect(site, "M")
     kinds = [f["t"] for f in frames(frame(site, "M", summary_from("M", "C2")))]
     first_shard = kinds.index("shard")
-    assert first_shard > 0 and set(kinds[:first_shard]) == {"cert"}  # certs first
+    assert kinds[0] == "cert" and set(kinds[:first_shard]) == {"cert", "doc"}  # then hub docs
     assert set(kinds[first_shard:]) == {"shard"}
 
 
@@ -74,3 +78,25 @@ def test_injecting_for_another_source_sa_fails_loudly() -> None:
     site = make_node("X", Role.SITE, "SA_X")
     with pytest.raises(ValueError):
         inject(site, make_shards(b"x"))
+
+
+@pytest.mark.req("REQ-OPS-07")
+def test_site_refuses_laptops_not_in_its_directory_or_with_a_bad_signature() -> None:
+    site = make_node("C3", Role.SITE, "SA_C")
+    inject(site, make_shards(b"listed"))  # the helper's laptop is listed: accepted
+    encoded = tuple(encode_shard(s) for s in make_shards(b"y"))
+    stranger = Ed25519PrivateKey.from_private_bytes(bytes(range(32)))
+    for key, sig in (
+        (stranger.public_key().public_bytes_raw(), stranger.sign(inject_signing_bytes(encoded))),
+        (TEST_LAPTOP.public_key().public_bytes_raw(), TEST_LAPTOP.sign(b"something else")),
+    ):
+        with pytest.raises(NotInDirectory):
+            site.handle(Inject(mono=0, wall=None, shards=encoded, laptop_key=key, sig=sig))
+    assert site.dropped["unknown_laptop"] == 2
+    other_sa = make_node("D", Role.SITE, "SA_D")  # listed, but for SA_C only
+    listed = TEST_LAPTOP.public_key().public_bytes_raw()
+    row = ["laptop", "SA_C", bytes(32), listed]
+    other_sa._on_doc(sign_doc(identity("H", Role.HUB, "SA_H"), "dir", 1, [row]))
+    good = TEST_LAPTOP.sign(inject_signing_bytes(encoded))
+    with pytest.raises(NotInDirectory):
+        other_sa.handle(Inject(mono=0, wall=None, shards=encoded, laptop_key=listed, sig=good))

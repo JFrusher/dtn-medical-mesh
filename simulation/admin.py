@@ -83,7 +83,7 @@ class Admin:
         if action == "revoke":
             if target not in w.nodes or target == self.hub.id:
                 raise ValueError(f"cannot revoke {target!r}")
-            w.dispatch(self.hub, partial(Revoke, subject=target))
+            w.dispatch(self.hub, partial(Revoke, subject=target), answer_now=True)
         elif action == "remove_laptop":
             if target not in self.r.endpoints:
                 raise ValueError(f"no laptop {target!r}")
@@ -101,7 +101,7 @@ class Admin:
                 payload=payload,
                 stage=STAGES[target],
             )
-            w.dispatch(self.hub, stage)
+            w.dispatch(self.hub, stage, answer_now=True)
         else:
             role = Role.RELAY if action == "provision_relay" else Role.MULE
             if not target or target in w.nodes:
@@ -122,9 +122,8 @@ class Admin:
             for e in self.r.endpoints.values()
             if e.name not in self.removed
         ]
-        self.r.world.dispatch(
-            self.hub, partial(PublishDirectory, entries=tuple(directory_body(entries)))
-        )
+        publish = partial(PublishDirectory, entries=tuple(directory_body(entries)))
+        self.r.world.dispatch(self.hub, publish, answer_now=True)  # the console waits for it
 
     def log_authentic(self, e: LogEntry) -> bool:
         try:

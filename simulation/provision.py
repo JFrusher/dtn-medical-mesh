@@ -2,9 +2,12 @@
 
 from functools import partial
 
+import cbor2
+
 from endpoint.directory import DirectoryEntry, directory_body
 from node import node_toml
-from node.events import PublishDirectory
+from node.events import FrameReceived, PublishDirectory
+from node.hw.radio import RadioKind
 from node.pki import HUB_CERT_LIFETIME_S, ROOT, Identity, Role, encode_cert, encode_doc, issue
 from simulation.endpoints import VirtualEndpoint
 from simulation.virtual_hw import SIM_EPOCH, SeededEntropy, SoftwareSecureElement
@@ -77,7 +80,8 @@ def provision_one(node: SimNode, hub: SimNode) -> None:
 
 
 def publish_directory(world: World, endpoints: dict[str, VirtualEndpoint]) -> None:
-    """The first hub publishes the directory; endpoints get it at registration, in person."""
+    """The first hub publishes the directory; site nodes and laptops get it at provisioning,
+    in person (the same doc frame a peer would send; it verifies by its signature alone)."""
     hub = next(n for n in world.nodes.values() if n.config.role is Role.HUB)
     entries = [
         DirectoryEntry(
@@ -87,5 +91,11 @@ def publish_directory(world: World, endpoints: dict[str, VirtualEndpoint]) -> No
     ]
     world.dispatch(hub, partial(PublishDirectory, entries=tuple(directory_body(entries))))
     doc = hub.core.docs[f"dir:{hub.core.identity.cert.cert_id}"]
+    frame = cbor2.dumps({"t": "doc", "d": encode_doc(doc)})
+    for site in world.nodes.values():
+        if site.config.role is Role.SITE:
+            world.dispatch(
+                site, partial(FrameReceived, peer_id=hub.id, radio=RadioKind.WIFI, frame=frame)
+            )
     for e in endpoints.values():
         e.update_directory(encode_doc(doc), encode_cert(hub.core.identity.cert))

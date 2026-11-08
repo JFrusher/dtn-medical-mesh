@@ -21,6 +21,12 @@ def admin(api: TestClient) -> dict[str, str]:
     return {"authorization": f"Bearer {r.json()['token']}"}
 
 
+def sign_in_staff(api: TestClient, endpoint: str) -> dict[str, str]:
+    staff = next(e for e in api.get("/api/endpoints").json() if e["name"] == endpoint)["staff"][0]
+    r = api.post(f"/api/endpoints/{endpoint}/session", json={"staff": staff, "pin": DEMO_PIN})
+    return {"authorization": f"Bearer {r.json()['token']}"}
+
+
 def run_minutes(sim: LiveSim, n: int) -> None:
     for _ in range(n):
         sim.advance(1)  # 60 s of virtual time each
@@ -62,13 +68,19 @@ def test_revocation_from_the_console_spreads_and_is_logged_and_signed(sim: LiveS
     assert bad.status_code == 422
 
 
-@pytest.mark.req("REQ-OPS-03")
+@pytest.mark.req("REQ-OPS-03", "REQ-OPS-07")
 def test_removed_laptop_drops_out_of_every_directory(sim: LiveSim) -> None:
     api = TestClient(create_app(sim))
     h = admin(api)
     api.post(
         "/api/admin/actions", headers=h, json={"action": "remove_laptop", "target": "hospital"}
     )
+    refused = api.post(
+        "/api/endpoints/hospital/messages",
+        headers=sign_in_staff(api, "hospital"),
+        json={"to": "clinic", "text": "from a lost laptop"},
+    )
+    assert refused.status_code == 422 and "directory" in refused.json()["detail"]
     run_minutes(sim, 60)
     assert "hospital" not in sim.r.endpoints["clinic"].directory  # the new directory travelled
     laptops = {la["name"]: la for la in api.get("/api/admin", headers=h).json()["laptops"]}

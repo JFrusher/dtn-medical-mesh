@@ -29,7 +29,7 @@ from node.bundle import (
     shard_id,
 )
 from node.clock import Hlc
-from node.crypto import verify_p256
+from node.crypto import verify_ed25519, verify_p256
 from node.events import (
     Action,
     ContactDown,
@@ -98,6 +98,15 @@ EXACT_AFTER_S = 2.0  # send exact lists if the link outlives the first transfer 
 HUB_DUE_S = 7 * 86400  # amber light: not seen a hub for this long (renewal due, §11.4)
 NEARLY_FULL = 0.9  # amber light: storage this full
 _SUMMARY_CONTEXT = b"dtn-medical-mesh/v1/summary"
+_INJECT_CONTEXT = b"dtn-medical-mesh/v1/inject"
+
+
+class NotInDirectory(ValueError):
+    """The laptop's key is not in this site's current directory: it may not inject (spec §9.6)."""
+
+
+def inject_signing_bytes(shards: tuple[bytes, ...]) -> bytes:
+    return _INJECT_CONTEXT + hashlib.sha256(cbor2.dumps(list(shards))).digest()
 
 
 class StorageFull(Exception):
@@ -254,6 +263,9 @@ class NodeCore:
             case FrameReceived(radio=RadioKind.LORA):
                 return self._on_lora(event.peer_id, event.frame)
             case Inject():
+                if not self._laptop_allowed(event):
+                    self.dropped["unknown_laptop"] += 1
+                    raise NotInDirectory("this laptop is not in the directory for this site")
                 return self._inject([decode_shard(s) for s in event.shards])
             case EndpointAck():
                 return self._endpoint_ack(event.bundle_id)
@@ -728,6 +740,17 @@ class NodeCore:
         return ok
 
     # --- shards -------------------------------------------------------------
+
+    def _laptop_allowed(self, event: Inject) -> bool:
+        listed = any(
+            sa == self.config.sa and signing == event.laptop_key
+            for d in self.docs.values()
+            if d.kind == "dir"
+            for _, sa, _, signing in cbor2.loads(d.body)
+        )
+        return listed and verify_ed25519(
+            event.laptop_key, inject_signing_bytes(event.shards), event.sig
+        )
 
     def _inject(self, shards: list[Shard]) -> list[Action]:
         bids = {s.header.bundle_id for s in shards}

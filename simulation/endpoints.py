@@ -13,6 +13,7 @@ from endpoint.pipeline import build_shards, open_delivered
 from endpoint.state import Outgoing, Status
 from node.bundle import Priority, decode_bundle, encode_shard
 from node.config import PRIORITY_CLASSES, PriorityClass
+from node.core import NotInDirectory, inject_signing_bytes
 from node.events import EndpointAck, Inject
 from simulation.virtual_hw import SIM_EPOCH, SeededEntropy
 from simulation.world import SimNode, World
@@ -77,7 +78,7 @@ class VirtualEndpoint:
         )
         encoded = tuple(encode_shard(s) for s in shards)
         if self.site.up:
-            self.world.dispatch(self.site, partial(Inject, shards=encoded))
+            self.world.dispatch(self.site, self._inject(encoded), answer_now=True)
         else:
             self.pending.append(encoded)  # the laptop keeps it until its node is back
         h = shards[0].header
@@ -90,7 +91,17 @@ class VirtualEndpoint:
 
     def _flush_pending(self) -> None:
         while self.pending:
-            self.world.dispatch(self.site, partial(Inject, shards=self.pending.pop(0)))
+            try:
+                self.world.dispatch(self.site, self._inject(self.pending[0]), answer_now=True)
+            except NotInDirectory:  # removed while its node was down: keep it, visible
+                self.world.log(self.world.scheduler.now, f"REFUSED {self.name}: not in directory")
+                return
+            self.pending.pop(0)
+
+    def _inject(self, encoded: tuple[bytes, ...]) -> "partial[Inject]":
+        """Signed with this laptop's key: the site node checks it against its directory."""
+        sig = self.keys.signing.sign(inject_signing_bytes(encoded))
+        return partial(Inject, shards=encoded, laptop_key=self.keys.signing_public, sig=sig)
 
     def status(self, bundle_id: bytes) -> Status:
         return self.sent[bundle_id].status(self._now_ms())

@@ -95,3 +95,4 @@ Format: `REQ-<AREA>-<NN>`. Spec references are to `PROJECT_SPEC.md`.
 | REQ-OPS-04 | A node starts only from a `node.toml` signed at provisioning by its issuing hub (or, for a hub, the root); an unsigned, altered or wrongly signed file is refused. | §9.3 |
 | REQ-OPS-05 | Software updates install only if signed by the offline release key, only for the roles the hub has staged, only on external power with no contact open; a version that fails to report healthy is rolled back and never retried. | §9.5 |
 | REQ-OPS-06 | Each node drives a status light: green healthy, blue carrying, blue flash exchanging, amber nearly full or a hub overdue, red revoked, expired or power failing; the map shows amber and red. | §11.4 |
+| REQ-OPS-07 | A site node accepts new messages only from a laptop listed for its service area in the current hub-signed directory, with the shards signed by that laptop's key. | §9.6 |

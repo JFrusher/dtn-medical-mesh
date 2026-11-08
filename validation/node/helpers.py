@@ -6,14 +6,15 @@ from dataclasses import replace
 from functools import cache
 
 import cbor2
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from node import erasure, merkle
 from node.bundle import Ack, Header, Priority, Shard, encode_ack, encode_shard, make_bundle_id
 from node.config import PRIORITY_CLASSES
-from node.core import T_CERTS, NodeConfig, NodeCore, _summary_signing_bytes
+from node.core import T_CERTS, NodeConfig, NodeCore, _summary_signing_bytes, inject_signing_bytes
 from node.events import Action, ContactUp, FrameReceived, Inject, SendFrame
 from node.hw.radio import RadioKind
-from node.pki import HUB_CERT_LIFETIME_S, ROOT, Identity, Role, encode_cert, issue
+from node.pki import HUB_CERT_LIFETIME_S, ROOT, Identity, Role, encode_cert, issue, sign_doc
 from node.summary import Bloom
 from simulation.virtual_hw import SIM_EPOCH, SeededEntropy, SoftwareSecureElement
 
@@ -99,8 +100,14 @@ def shard_msg(s: Shard) -> dict[str, object]:
 
 
 def inject(node: NodeCore, shards: list[Shard]) -> list[Action]:
+    """As the site's own laptop: listed in a hub-signed directory, injection signed."""
+    if not any(d.kind == "dir" for d in node.docs.values()):
+        row = ["laptop", node.config.sa, bytes(32), TEST_LAPTOP.public_key().public_bytes_raw()]
+        node._on_doc(sign_doc(identity("H", Role.HUB, "SA_H"), "dir", 1, [row]))
     encoded = tuple(encode_shard(s) for s in shards)
-    return node.handle(Inject(mono=0, wall=None, shards=encoded))
+    sig = TEST_LAPTOP.sign(inject_signing_bytes(encoded))
+    key = TEST_LAPTOP.public_key().public_bytes_raw()
+    return node.handle(Inject(mono=0, wall=None, shards=encoded, laptop_key=key, sig=sig))
 
 
 # --- provisioned test identities -------------------------------------------------
@@ -109,6 +116,7 @@ NOW = int(SIM_EPOCH)
 TEST_ROOT = SoftwareSecureElement(SeededEntropy("test-root"))
 TEST_HUB_SE = SoftwareSecureElement(SeededEntropy("test-hub"))
 TEST_RELEASE = SoftwareSecureElement(SeededEntropy("test-release"))
+TEST_LAPTOP = Ed25519PrivateKey.from_private_bytes(SeededEntropy("test-laptop").random_bytes(32))
 TEST_HUB = issue(
     TEST_ROOT.sign, ROOT, "H", Role.HUB, "SA_H", TEST_HUB_SE.public_key(), NOW, HUB_CERT_LIFETIME_S
 )

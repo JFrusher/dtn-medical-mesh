@@ -70,9 +70,12 @@ class StageUpdate(EventBase):
 
 @dataclass(frozen=True, kw_only=True)
 class Inject(EventBase):
-    """All shards of one new bundle, handed over by the attached endpoint (site nodes only)."""
+    """All shards of one new bundle, handed over by a laptop on the site node's access point
+    (spec §9.6), signed with the laptop's endpoint key (see core.inject_signing_bytes)."""
 
     shards: tuple[bytes, ...]
+    laptop_key: bytes  # Ed25519 public key, as listed in the hub-signed directory
+    sig: bytes
 
 
 @dataclass(frozen=True, kw_only=True)
