@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Draft v0.2: emulated implementation complete (phases 0–7); v0.2 adds node, staff-app and emulator-fidelity design |
+| **Status** | v0.2: emulated implementation complete (phases 0–11): node, staff app, admin console, signed updates and pilot-grade emulation with an Arusha sizing study |
 | **Licence** | Apache 2.0 |
 | **Primary language** | Python 3.11+ (node, emulator, servers); TypeScript/JS in the staff app |
 | **Target** | Supervised real-world pilot (~10–30 nodes), reached via simulation → bench → field |
@@ -405,7 +405,7 @@ The emulator drives the **real `NodeCore`** in a single process on a **discrete-
 **Goal for v0.2:** realistic enough to *size a pilot*: how many vehicles and relays a district needs, expected delivery times, storage and battery, with every assumption visible and replaceable by H1 measurements.
 
 ### 12.2 Fidelity model
-| Area | v0.1 (built) | v0.2 (planned) |
+| Area | v0.1 | v0.2 (built, P8 and P11) |
 |---|---|---|
 | Wi-Fi link | Disc range, fixed 2 s setup, fixed 1.5 MB/s | Log-distance path loss with log-normal shadowing, **clutter from OSM building density** along the path, **line of sight from SRTM elevation**; throughput falls with distance; BLE discovery delay before Wi-Fi setup |
 | Channel sharing | Each contact independent | Contacts in the same neighbourhood **share airtime** (one Wi-Fi channel per area) |
@@ -489,8 +489,8 @@ Step-by-step breakdown: [`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md). Ther
 | Phase | Scope | Exit criteria |
 |---|---|---|
 | **1 — Simulation** (done) | Node core, endpoint crypto, emulator, PWA and map, all on one machine | `stress` scenario passes zero-silent-loss; full trace matrix coverage of P1 requirements |
-| **1b — Pilot-grade emulation** | Fidelity model and pilot sizing (§12.2–12.3) | Sizing report for Arusha with every assumption sourced |
-| **1c — Staff app, consoles, node software** | Staff app (§10.1–10.5), admin console (§10.6), daemon design, provisioning and signed updates in emulation (§9.3–9.5) | Clinic-to-hospital referral, triage and results end to end in the emulator, in English and Swahili |
+| **1b — Pilot-grade emulation** (done) | Fidelity model and pilot sizing (§12.2–12.3) | Sizing report for Arusha with every assumption sourced |
+| **1c — Staff app, consoles, node software** (done) | Staff app (§10.1–10.5), admin console (§10.6), daemon design, provisioning and signed updates in emulation (§9.3–9.5) | Clinic-to-hospital referral, triage and results end to end in the emulator, in English and Swahili |
 | **2 — Bench / drive test** | 2–6 real nodes; secure element, RTC, LoRa, UPS; drive-by tests | Measured contact budgets inform the defaults; power-cut and heat tests pass |
 | **3 — Supervised field pilot** | ~10–30 nodes with a partner, running **in parallel** with existing channels | Partner governance in place (§13); pilot metrics reviewed against hazard log |
 

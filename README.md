@@ -9,7 +9,7 @@
 [![CI](https://github.com/JFrusher/dtn-medical-mesh/actions/workflows/ci.yml/badge.svg)](https://github.com/JFrusher/dtn-medical-mesh/actions/workflows/ci.yml)
 [![Licence: Apache 2.0](https://img.shields.io/badge/licence-Apache%202.0-0f6e74)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-0f6e74)](pyproject.toml)
-[![Requirements tested](https://img.shields.io/badge/requirements-37%2F37%20tested-0f6e74)](docs/trace_matrix.md)
+[![Requirements tested](https://img.shields.io/badge/requirements-52%2F52%20tested-0f6e74)](docs/trace_matrix.md)
 [![Silent losses](https://img.shields.io/badge/silent%20losses-0%20in%205%20scenarios-0f6e74)](#results)
 
 <img src="docs/media/hero.gif" alt="Map of Arusha, Tanzania: an ambulance, two vans and an outreach motorbike drive real roads between a regional hospital and four clinics, picking up and handing over encrypted message pieces" width="900">
@@ -33,7 +33,7 @@ git clone https://github.com/JFrusher/dtn-medical-mesh && cd dtn-medical-mesh
 uv run dtn-demo
 ```
 
-Open http://127.0.0.1:8000. You are looking at a day in the Arusha district, running 60 times faster than real life. Open **Murieti** (top left) to write as the clinic, **Hospital** (top right) to answer, and press **Follow** on any message to see the route its pieces took. Everything, including the street map, works offline.
+Open http://127.0.0.1:8000. You are looking at a day in the Arusha district, running 60 times faster than real life. Open **Murieti** (top left) and sign in with the demo PIN **2580** to write a referral as the clinic; open **Hospital** (top right) to triage it and answer **Accept**, **Decline** or **Need information**. Press **Follow** on any message to see the route its pieces took. The hub's admin console is at http://127.0.0.1:8000/admin (same PIN). English and Kiswahili (a draft awaiting clinical review) are in the top-right menu. Everything, including the street map, works offline.
 
 ## See it work
 
@@ -41,7 +41,7 @@ Open http://127.0.0.1:8000. You are looking at a day in the Arusha district, run
 <tr>
 <td width="50%" valign="top">
 
-**A critical referral, followed end to end.** Murieti clinic writes it; the ambulance parked outside takes all 12 pieces; at the hospital 4 are enough to rebuild it. The journey view shows each handover, from the signed custody receipts.
+**A critical referral, followed end to end.** A nurse at Murieti signs in and fills in the referral form; the ambulance parked outside takes all 12 pieces; at the hospital 4 are enough to rebuild it. The journey view shows each handover, from the signed custody receipts.
 
 </td>
 <td width="50%" valign="top">
@@ -51,7 +51,7 @@ Open http://127.0.0.1:8000. You are looking at a day in the Arusha district, run
 </td>
 </tr>
 <tr>
-<td><img src="docs/media/chat.gif" alt="The Murieti clinic chat sends a critical referral; the ambulance carries it to the hospital; the journey view shows Murieti, Ambulance, Hospital and a timeline ending 'Rebuilt and opened at Hospital'"></td>
+<td><img src="docs/media/chat.gif" alt="A nurse at Murieti signs in with a PIN and sends a critical referral from the form; the ambulance carries it to the hospital; the journey view shows Murieti, Ambulance, Hospital and a timeline ending 'Rebuilt and opened at Hospital'"></td>
 <td><img src="docs/media/stress.gif" alt="Schematic network with three attackers circled in red; the 'bad frames refused' count climbs while deliveries continue"></td>
 </tr>
 </table>
@@ -66,9 +66,9 @@ Links follow path loss with shadowing, terrain and building clutter (Arusha), BL
 |---|---|---:|---:|---:|---:|---:|
 | **Arusha**, real roads and terrain: hospital, 4 clinics, ambulance, 2 vans, motorbike, a health worker on foot | 24 h | 93 | 82 | 11 | 0 | **0** |
 | **Rural clinics**: 4 clinics, solar street-light relays | 72 h | 201 | 199 | 2 | 0 | **0** |
-| **Disaster response**: aid posts, teams on foot, lossy links, failing relay | 24 h | 74 | 71 | 3 | 0 | **0** |
+| **Disaster response**: aid posts, teams on foot, lossy links, failing relay | 24 h | 74 | 69 | 5 | 0 | **0** |
 | **Island medevac**: ferry twice a day, plane every 2 days | 72 h | 48 | 43 | 2 | 3 | **0** |
-| **Stress**: every fault plus three attackers | 12 h | 59 | 54 | 5 | 0 | **0** |
+| **Stress**: every fault plus three attackers | 12 h | 59 | 58 | 1 | 0 | **0** |
 
 The three flagged on the islands are critical referrals with a 6-hour lifetime and a plane that calls every two days: the system said so, as designed. In Arusha the vans park from 20:00 to 06:00, so messages written at night wait for the morning round.
 
@@ -117,6 +117,17 @@ flowchart LR
 - **Built for drive-bys.** A van passing a street light may be in range for five seconds. Nothing waits for a handshake: each side pushes what the other lacks, most urgent first, and signed custody receipts follow whenever they can.
 - **Learns the roads.** Copies go to everyone until the network has seen enough contacts, then PRoPHET routing sends them towards the nodes that actually reach the destination.
 - **Doesn't trust clocks.** A hybrid logical clock plus each message's carried age: a reset clock can neither revive an old message nor kill a fresh one.
+- **Made for the people using it.** Staff sign in on the shared clinic laptop with a personal PIN that unlocks the clinic's keys, and their name travels inside the signed message. Clinics keep a patient list (name, age, sex and local ID only) and send structured referrals; the hospital triages by urgency, answers each referral, and sends results back. Every word is in a translation catalogue (English, and Kiswahili awaiting review), and the app passes an automated WCAG 2.1 AA scan.
+- **Run from the hub.** Every node reports its health (battery, temperature, storage, version, status light) over the mesh. The admin console revokes nodes, removes lost laptops, provisions spares and stages software updates; every action is signed by the operator and logged. Updates must be signed by an offline release key, install only on external power, and roll back on their own if the new version never reports healthy.
+
+## Pilot sizing
+
+The emulator models what a pilot depends on: radio path loss with terrain and building clutter, BLE discovery and shared airtime, CPU and storage time on each Pi, flash wear, solar power from NASA irradiance data, and vehicle schedules with night stops and breakdowns. Every figure and its source is in [`simulation/assumptions.yaml`](simulation/assumptions.yaml). A sweep over 10 simulated days per variant gives, for Arusha with estimated volumes:
+
+> [!IMPORTANT]
+> **The ambulance carries the critical referrals.** With it, every critical referral that had 4 hours to arrive did so; without it, 27 % did. The street-light relays, the motorbike and the health worker on foot added no measurable capacity on these roads, and doubling the volume only doubled storage. Better antennas matter more than more parity.
+
+Method, numbers, caveats and how to re-run it: [docs/sizing/arusha.md](docs/sizing/arusha.md).
 
 ## Looking for a pilot partner
 
@@ -153,6 +164,8 @@ Full frame list and deletion rules: [docs/protocol.md](docs/protocol.md).
 | If… | Then… |
 |---|---|
 | a relay is stolen | it holds only ciphertext; its store is encrypted with a key in the secure element; its certificate expires within 14 days and can be revoked now |
+| a clinic laptop is lost | its keys are sealed under each staff member's PIN and a device secret, sign-in locks after 5 wrong PINs, and the admin removes it from the directory: its site node then refuses it and no new message is sealed to it |
+| a hub is compromised | it still cannot push software: updates must carry the offline release key's signature, and a node's configuration is signed at provisioning |
 | a node forges or alters a piece | the Merkle proof or header signature fails at the next hop and the piece is dropped |
 | someone forges a delivery confirmation | it must be signed by a site in the destination area *and* match the signed header, otherwise nothing is purged |
 | an unregistered device turns up | its certificate doesn't chain to the hub, so nobody talks to it |
@@ -185,10 +198,10 @@ Every one was confirmed with evidence before it was fixed, and has a test that f
 |---|---|
 | [`node/`](node) | The node: a sans-IO state machine (`handle(event) -> actions`) that runs unchanged in the emulator and, next, on a Raspberry Pi |
 | [`endpoint/`](endpoint) | Laptop side: encryption, padding, splitting, FHIR-lite messages, delivery status |
-| [`interface/`](interface) | The app: FastAPI, chat, street map and journey view (plain HTML/JS, offline) |
-| [`simulation/`](simulation) | The emulator: virtual time, roads, radio windows and loss, LoRa airtime, solar and vehicle power, clock faults, attackers, metrics |
-| [`validation/`](validation) | 195 tests and the requirement trace matrix |
-| [`docs/`](docs) | Requirements, hazard log, DPIA template, architecture, protocol, third-party software |
+| [`interface/`](interface) | The apps: FastAPI; staff app (PIN sign-in, patients, referrals, triage, results), admin console, street map and journey view; plain HTML/JS, offline, English and Kiswahili |
+| [`simulation/`](simulation) | The emulator: virtual time, roads and terrain, path-loss radio and LoRa link budgets, CPU and flash costs, noisy schedules, solar and vehicle power, clock faults, attackers, metrics, batch sweeps and sizing reports |
+| [`validation/`](validation) | 270 tests (unit, emulator, API, browser and accessibility) and the requirement trace matrix |
+| [`docs/`](docs) | Requirements, hazard log, DPIA template, architecture, protocol, the Arusha sizing study, third-party software |
 | [`tools/`](tools) | Rebuild the offline Arusha map and these GIFs |
 | [`PROJECT_SPEC.md`](PROJECT_SPEC.md), [`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md) | The specification and the step-by-step plan |
 
@@ -203,6 +216,8 @@ uv run playwright install chromium      # browser tests only
 uv run ruff check . && uv run mypy .
 uv run python validation/trace_matrix.py # every test, mapped to requirements
 uv run python -m simulation.runner arusha --seed 1 --out out
+uv run python -m simulation.batch --sweep simulation/sweeps/arusha.yaml
+uv run python -m simulation.report out/batch/arusha --scenario arusha
 ```
 
 Rebuild the offline map and scenario (downloads from Protomaps, npm and OSRM), or the GIFs:
@@ -216,10 +231,10 @@ uv run python tools/record_gifs.py
 
 ## What's next
 
-Real hardware: Raspberry Pi nodes with a secure element, battery-backed clock, LoRa radio and UPS. Every one of those already has an interface and an emulated stand-in, so drivers slot in without touching the node logic. See [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md).
+Real hardware: Raspberry Pi nodes with a secure element, battery-backed clock, LoRa radio and UPS. Every one of those already has an interface and an emulated stand-in, so drivers slot in without touching the node logic, and the bench measurements replace the estimates in `assumptions.yaml`. Before any pilot, a native-speaking clinician reviews the Kiswahili. See [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md).
 
 ## Credits
 
-Map data © [OpenStreetMap](https://www.openstreetmap.org/copyright) contributors (ODbL), via [Protomaps](https://protomaps.com). Map rendering by [MapLibre GL JS](https://maplibre.org), routes by [OSRM](https://project-osrm.org), label glyphs from Noto Sans (SIL OFL). Full list: [docs/soup.md](docs/soup.md).
+Map data © [OpenStreetMap](https://www.openstreetmap.org/copyright) contributors (ODbL), via [Protomaps](https://protomaps.com). Map rendering by [MapLibre GL JS](https://maplibre.org), routes by [OSRM](https://project-osrm.org), label glyphs from Noto Sans (SIL OFL). Elevation from Mapzen terrain tiles on AWS Open Data; irradiance from [NASA POWER](https://power.larc.nasa.gov); accessibility checks by [axe-core](https://github.com/dequelabs/axe-core) (tests only). Full list: [docs/soup.md](docs/soup.md).
 
 Licensed under [Apache 2.0](LICENSE).
