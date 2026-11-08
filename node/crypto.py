@@ -5,8 +5,12 @@ from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives.asymmetric.utils import encode_dss_signature
 
+verifies = 0  # running count; the emulator charges CPU time per verify (spec §12.2)
+
 
 def verify_p256(public_key: bytes, message: bytes, signature: bytes) -> bool:
+    global verifies
+    verifies += 1
     if len(signature) != 64:
         return False
     try:

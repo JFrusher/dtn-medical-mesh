@@ -8,6 +8,7 @@ from functools import partial
 from itertools import combinations
 from pathlib import Path
 
+from node import crypto
 from node.bundle import Receipt, decode_receipt
 from node.core import T_LEDGER, NodeConfig, NodeCore
 from node.events import (
@@ -31,6 +32,7 @@ from node.hw.radio import RadioKind
 from node.hw.rtc import RtcError
 from node.pki import Identity, Role
 from node.storage import STORAGE_KEY_SLOT, Storage
+from simulation.compute import cost_s, profiles
 from simulation.mobility import Mobility
 from simulation.radio_model import (
     LORA_SENSITIVITY_DBM,
@@ -79,6 +81,7 @@ class SimNode:
     core_class: type[NodeCore] = NodeCore  # HostileCore for attackers
     attacks: frozenset[str] = frozenset()
     external_power: bool = True
+    busy_until: float = 0.0  # virtual time its current work finishes (spec §12.2 compute)
 
     def boot(self, now: float) -> None:
         """Start the node from what is on disk (also used after a power cut)."""
@@ -127,6 +130,8 @@ class World:
         # records an auditor could collect from real nodes; the map and journey view use them.
         self.receipts: list[tuple[float, str, Receipt]] = []
         self._duty: dict[str, DutyCycle] = defaultdict(DutyCycle)
+        self._profiles = profiles()
+        self.busy_s: dict[str, float] = defaultdict(float)  # CPU and storage time per node
         self.log: LogFn = log or (lambda t, msg: None)
 
     def add_node(
@@ -202,9 +207,31 @@ class World:
             wall: float | None = node.rtc.read()
         except RtcError:
             wall = None
-        event = event_factory(mono=self.scheduler.now - node.boot_at, wall=wall)
-        for action in node.core.handle(event):
-            self._apply(node, action)
+        now = self.scheduler.now
+        if node.busy_until > now:  # still working on an earlier event: wait in line
+            self.scheduler.schedule(node.busy_until, partial(self.dispatch, node, event_factory))
+            return
+        event = event_factory(mono=now - node.boot_at, wall=wall)
+        signs, verifies = node.se.signs, crypto.verifies
+        actions = node.core.handle(event)
+        received = len(event.frame) if isinstance(event, FrameReceived) else 0
+        cost = cost_s(
+            self._profiles[node.config.role],
+            node.se.signs - signs,
+            crypto.verifies - verifies,
+            received,
+            actions,
+        )
+        node.busy_until = now + cost
+        self.busy_s[node.id] += cost
+        boot = node.boots
+
+        def take_effect() -> None:
+            if node.up and node.boots == boot:  # a power cut while busy loses the work
+                for action in actions:
+                    self._apply(node, action)
+
+        self.scheduler.after(cost, take_effect)
 
     def _apply(self, node: SimNode, action: Action) -> None:
         match action:

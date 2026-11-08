@@ -34,11 +34,13 @@ class SoftwareSecureElement:
         scalar = int.from_bytes(entropy.random_bytes(32)) % (_P256_ORDER - 1) + 1
         self.__key = ec.derive_private_key(scalar, ec.SECP256R1())
         self.__slots = [entropy.random_bytes(32) for _ in range(slots)]
+        self.signs = 0  # the emulator charges each sign's time to the node
 
     def public_key(self) -> bytes:
         return self.__key.public_key().public_bytes(Encoding.X962, PublicFormat.UncompressedPoint)
 
     def sign(self, message: bytes) -> bytes:
+        self.signs += 1
         der = self.__key.sign(message, ec.ECDSA(hashes.SHA256(), deterministic_signing=True))
         r, s = decode_dss_signature(der)
         return r.to_bytes(32) + s.to_bytes(32)

@@ -40,6 +40,7 @@ class Report:
     lost_frames: int
     lora_over_budget: int
     drops: dict[str, int] = field(default_factory=dict)
+    busy_pct: dict[str, float] = field(default_factory=dict)  # CPU and storage time, % of run
     # "group.name" -> value, unit, source ("scenario" when the scenario overrode it)
     assumptions: dict[str, dict[str, object]] = field(default_factory=dict)
 
@@ -76,6 +77,9 @@ class Report:
             "",
             "Peak storage per node (bytes): "
             + ", ".join(f"{k} {v:,}" for k, v in sorted(self.peak_storage_bytes.items())),
+            "",
+            "Busy (CPU and storage, % of run): "
+            + ", ".join(f"{k} {v:.2f}" for k, v in sorted(self.busy_pct.items())),
             "",
             "## Assumptions used",
             "",
@@ -143,6 +147,7 @@ def evaluate(result: "RunResult", seed: int) -> Report:
         lost_frames=world.lost_frames,
         lora_over_budget=world.lora_over_budget,
         drops=dict(drops),
+        busy_pct={n: 100 * b / world.scheduler.now for n, b in world.busy_s.items()},
         assumptions=_assumptions(result.scenario.overrides),
     )
 

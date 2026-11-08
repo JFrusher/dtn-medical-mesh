@@ -33,3 +33,13 @@ radio:
   antenna_relay_m: {value: 6, unit: m, source: estimate, ref: "street-light pole"}
   antenna_mule_m: {value: 2, unit: m, source: estimate, ref: "vehicle roof or rear shelf"}
   clutter_db_per_100m: {value: 20, unit: dB per 100 m fully built, source: estimate, ref: "scaled by OSM building share along the path; ITU-R P.2108 gives statistics, not per-path values"}
+compute:
+  se_sign_s: {value: 0.05, unit: s, source: estimate, ref: "ATECC608B ECDSA P-256 sign, order of 50 ms per Microchip datasheet execution times; confirm in H1"}
+  verify_s_zero2w: {value: 0.0012, unit: s, source: estimate, ref: "OpenSSL P-256 verify on Cortex-A53 at 1 GHz (Pi Zero 2 W), roughly 800/s"}
+  verify_s_pi5: {value: 0.0002, unit: s, source: estimate, ref: "OpenSSL P-256 verify on Cortex-A76 at 2.4 GHz (Pi 5), roughly 5000/s"}
+  sha256_bytes_per_s_zero2w: {value: 60000000, unit: B/s, source: estimate, ref: "BCM2710A1 has no ARMv8 crypto extensions: software SHA-256"}
+  sha256_bytes_per_s_pi5: {value: 1500000000, unit: B/s, source: estimate, ref: "BCM2712 with ARMv8 SHA-256 instructions"}
+  db_commit_s_zero2w: {value: 0.008, unit: s, source: estimate, ref: "SQLCipher WAL commit with synchronous=FULL: one fsync on industrial microSD"}
+  db_commit_s_pi5: {value: 0.001, unit: s, source: estimate, ref: "same on NVMe SSD"}
+  db_bytes_per_s_zero2w: {value: 8000000, unit: B/s, source: estimate, ref: "microSD write plus SQLCipher AES-256 on A53"}
+  db_bytes_per_s_pi5: {value: 200000000, unit: B/s, source: estimate, ref: "NVMe write plus AES on A76"}
