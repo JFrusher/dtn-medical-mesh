@@ -1,0 +1,61 @@
+# Every pressure at once, 12 hours: lossy, bit-flipping links; power cuts and a starved solar
+# relay; reset, failed and drifting clocks; small stores that must evict; 5 MB media; an
+# insider forger, a blackhole and an unregistered rogue. Must still show zero silent losses.
+name: stress
+duration_s: 43200
+tick_s: 2
+radio:
+  wifi_range_m: 100
+  p_good_to_bad: 0.05
+  p_bad_to_good: 0.25
+  loss_in_good: 0.01
+  loss_in_bad: 0.5
+  bit_flip_per_frame: 0.01
+nodes:
+  - {id: HOSPITAL, role: hub, sa: SA_HOSPITAL, at: [0, 0]}
+  - {id: CLINIC_1, role: site, sa: SA_CLINIC_1, at: [6000, 0], capacity_mb: 64}
+  - {id: CLINIC_2, role: site, sa: SA_CLINIC_2, at: [0, 6000], capacity_mb: 64}
+  - id: VAN
+    role: mule
+    route: {waypoints: [[0, 0], [6000, 0], [0, 6000]], speed: 12, dwell_s: 600}
+    capacity_mb: 24
+    power: {kind: vehicle, capacity_wh: 3, load_w: 2}
+  - id: AMBULANCE
+    role: mule
+    route: {waypoints: [[0, 0], [6000, 0]], speed: 18, dwell_s: 300, start_s: 600}
+    capacity_mb: 24
+  - id: SOLAR_RELAY
+    role: relay
+    at: [3000, 0]
+    capacity_mb: 8
+    power: {kind: solar, capacity_wh: 2, load_w: 1, solar_peak_w: 2}
+  - id: FORGER
+    role: mule
+    route: {waypoints: [[0, 0], [0, 6000]], speed: 10, dwell_s: 400}
+    hostile: {attacks: [forge_shards, corrupt_shards, forge_acks, replay]}
+  - id: BLACKHOLE
+    role: mule
+    route: {waypoints: [[0, 0], [6000, 0], [0, 6000]], speed: 15, dwell_s: 120}
+    hostile: {attacks: [blackhole]}
+  - id: ROGUE
+    role: mule
+    route: {waypoints: [[6000, 0], [0, 6000]], speed: 9, dwell_s: 200}
+    hostile: {attacks: [replay, forge_acks], registered: false}
+endpoints:
+  - {name: hospital, node: HOSPITAL}
+  - {name: clinic-1, node: CLINIC_1}
+  - {name: clinic-2, node: CLINIC_2}
+workload:
+  - {from: clinic-1, to: hospital, priority: CRITICAL, text: referral, every_s: 5400, end_s: 39600}
+  - {from: clinic-2, to: hospital, priority: URGENT, text: vitals, size_bytes: 300, every_s: 1800, end_s: 39600}
+  - {from: clinic-1, to: hospital, priority: ROUTINE, text: photo, size_bytes: 400000, every_s: 7200, end_s: 39600}
+  - {from: clinic-2, to: hospital, priority: ROUTINE, text: ultrasound, size_bytes: 5000000, every_s: 14400, start_s: 3600, end_s: 39600}
+  - {from: hospital, to: clinic-1, priority: URGENT, text: advice, every_s: 3600, start_s: 900, end_s: 39600}
+  - {from: hospital, to: clinic-2, priority: URGENT, text: result, every_s: 5400, start_s: 1500, end_s: 39600}
+faults:
+  - {at_s: 1200, node: CLINIC_1, kind: power_cut, value: 1800}
+  - {at_s: 5000, node: AMBULANCE, kind: power_cut, value: 600}
+  - {at_s: 9000, node: HOSPITAL, kind: rtc_reset}
+  - {at_s: 12000, node: VAN, kind: rtc_fail}
+  - {at_s: 15000, node: CLINIC_2, kind: rtc_drift, value: 500}
+  - {at_s: 20000, node: HOSPITAL, kind: power_cut, value: 1200}

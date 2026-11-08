@@ -1,0 +1,309 @@
+"""The simulated world: nodes, mobility, radio contacts, and the action driver."""
+
+import math
+from collections import defaultdict
+from collections.abc import Callable
+from dataclasses import dataclass, field
+from functools import partial
+from itertools import combinations
+from pathlib import Path
+
+from node.bundle import Receipt, decode_receipt
+from node.core import T_LEDGER, NodeConfig, NodeCore
+from node.events import (
+    Action,
+    ContactDown,
+    ContactUp,
+    Delete,
+    Deliver,
+    Delivered,
+    DirectoryUpdate,
+    Emit,
+    Event,
+    FrameReceived,
+    PowerLow,
+    SendFrame,
+    SetTimer,
+    Store,
+    Timer,
+)
+from node.hw.radio import RadioKind
+from node.hw.rtc import RtcError
+from node.pki import Identity
+from node.storage import STORAGE_KEY_SLOT, Storage
+from simulation.mobility import Mobility
+from simulation.radio_model import (
+    DutyCycle,
+    Link,
+    RadioParams,
+    channel,
+    lora_airtime_s,
+    transfer_s,
+)
+from simulation.scheduler import Scheduler
+from simulation.virtual_hw import Battery, SeededEntropy, SoftwareSecureElement, VirtualRtc
+
+POWER_TICK_S = 60.0
+POWER_ON_PCT = 10.0
+
+LogFn = Callable[[float, str], None]
+
+
+@dataclass
+class SimNode:
+    config: NodeConfig
+    mobility: Mobility
+    storage: Storage
+    rtc: VirtualRtc
+    se: SoftwareSecureElement
+    identity: Identity | None = None  # set by provisioning
+    core: NodeCore = field(init=False)
+    boot_at: float = 0.0
+    on_deliver: Callable[[bytes], None] | None = None
+    on_delivered: Callable[[bytes], None] | None = None
+    on_directory: Callable[[bytes, bytes], None] | None = None
+    on_boot: Callable[[], None] | None = None
+    db_path: Path | None = None
+    up: bool = False
+    boots: int = 0
+    battery: Battery | None = None  # None: mains powered
+    core_class: type[NodeCore] = NodeCore  # HostileCore for attackers
+    attacks: frozenset[str] = frozenset()
+    external_power: bool = True
+
+    def boot(self, now: float) -> None:
+        """Start the node from what is on disk (also used after a power cut)."""
+        if self.identity is None:
+            raise RuntimeError(f"{self.id} was never provisioned")
+        self.core = self.core_class(self.config, self.storage.load(), self.identity)
+        if self.attacks:
+            self.core.attacks = self.attacks  # type: ignore[attr-defined]
+        self.boot_at = now
+        self.boots += 1
+        self.up = True
+        if self.on_boot:
+            self.on_boot()
+
+    @property
+    def id(self) -> str:
+        return self.config.node_id
+
+
+class World:
+    def __init__(
+        self,
+        scheduler: Scheduler,
+        data_dir: Path,
+        radio: RadioParams | None = None,
+        tick_s: float = 1.0,
+        log: LogFn | None = None,
+    ) -> None:
+        self.scheduler = scheduler
+        self.data_dir = data_dir
+        data_dir.mkdir(parents=True, exist_ok=True)
+        self.radio = radio or RadioParams()
+        self.tick_s = tick_s
+        self.nodes: dict[str, SimNode] = {}
+        self.contacts: set[frozenset[str]] = set()  # links that are up
+        self.links: dict[frozenset[str], Link] = {}
+        self._connecting: set[frozenset[str]] = set()
+        self.lost_frames = 0
+        self.wifi_bytes = 0
+        self.peak_bytes: dict[str, int] = defaultdict(int)
+        self.lora_over_budget = 0
+        self.lora_log: list[tuple[float, str]] = []  # (time, sender) of each LoRa broadcast
+        # Custody receipts as nodes commit them: (time, receiver node, receipt). The same signed
+        # records an auditor could collect from real nodes; the map and journey view use them.
+        self.receipts: list[tuple[float, str, Receipt]] = []
+        self._duty: dict[str, DutyCycle] = defaultdict(DutyCycle)
+        self.log: LogFn = log or (lambda t, msg: None)
+
+    def add_node(
+        self, config: NodeConfig, mobility: Mobility, battery: Battery | None = None
+    ) -> SimNode:
+        if config.node_id in self.nodes:
+            raise ValueError(f"duplicate node id {config.node_id}")
+        se = SoftwareSecureElement(SeededEntropy(f"{self.scheduler.seed}:{config.node_id}"))
+        storage = Storage(self.data_dir / f"{config.node_id}.db", se.read_slot(STORAGE_KEY_SLOT))
+        node = SimNode(config, mobility, storage, VirtualRtc(self.scheduler), se)
+        node.db_path = self.data_dir / f"{config.node_id}.db"
+        node.battery = battery
+        self.nodes[config.node_id] = node
+        return node
+
+    def power_off(self, node: SimNode) -> None:
+        """Hard power loss: RAM state, open links and pending timers are gone; disk remains."""
+        if not node.up:
+            return
+        node.up = False
+        for pair, link in self.links.items():
+            if node.id in pair and link.up:
+                link.up = False
+                link.generation += 1
+                link.busy_until.clear()
+                self.contacts.discard(pair)
+                (other,) = pair - {node.id}
+                self.dispatch(
+                    self.nodes[other], partial(ContactDown, peer_id=node.id, radio=RadioKind.WIFI)
+                )
+        node.storage.close()
+        self.log(self.scheduler.now, f"POWER OFF {node.id}")
+
+    def power_on(self, node: SimNode) -> None:
+        if node.up:
+            return
+        assert node.db_path is not None
+        node.storage = Storage(node.db_path, node.se.read_slot(STORAGE_KEY_SLOT))
+        self.log(self.scheduler.now, f"POWER ON {node.id}")
+        node.boot(self.scheduler.now)
+
+    def start(self) -> None:
+        for node in self.nodes.values():
+            node.boot(self.scheduler.now)
+        self.scheduler.after(0, self._tick)
+        if any(n.battery for n in self.nodes.values()):
+            self.scheduler.after(0, self._power_tick)
+
+    def _power_tick(self) -> None:
+        """Integrate batteries; signal PowerLow on losing external power; cut or restore."""
+        now, dt = self.scheduler.now, POWER_TICK_S
+        for node in self.nodes.values():
+            b = node.battery
+            if b is None:
+                continue
+            moving = node.mobility.position(now) != node.mobility.position(now + dt)
+            external = b.external(now, moving)
+            if node.up and node.external_power and not external:
+                self.dispatch(node, PowerLow)
+            node.external_power = external
+            b.step(now, dt, moving)
+            if node.up and b.level_wh <= 0:
+                self.power_off(node)
+            elif not node.up and b.pct >= POWER_ON_PCT:
+                self.power_on(node)
+        self.scheduler.after(dt, self._power_tick)
+
+    def position(self, node_id: str) -> tuple[float, float]:
+        return self.nodes[node_id].mobility.position(self.scheduler.now)
+
+    def dispatch(self, node: SimNode, event_factory: Callable[..., Event]) -> None:
+        """Build an event stamped with the node's own clocks, run it, apply the actions in order."""
+        if not node.up:
+            return  # a powered-off node hears nothing
+        try:
+            wall: float | None = node.rtc.read()
+        except RtcError:
+            wall = None
+        event = event_factory(mono=self.scheduler.now - node.boot_at, wall=wall)
+        for action in node.core.handle(event):
+            self._apply(node, action)
+
+    def _apply(self, node: SimNode, action: Action) -> None:
+        match action:
+            case Store() | Delete():
+                node.storage.apply(action)
+                self.peak_bytes[node.id] = max(self.peak_bytes[node.id], node.core.used_bytes)
+                if isinstance(action, Store) and action.table == T_LEDGER:
+                    self.receipts.append(
+                        (self.scheduler.now, node.id, decode_receipt(action.value))
+                    )
+            case SendFrame():
+                self._transmit(node.id, action)
+            case Deliver():
+                self.log(self.scheduler.now, f"DELIVERED at {node.id}")
+                if node.on_deliver:
+                    node.on_deliver(action.bundle)
+            case SetTimer():
+                at = node.boot_at + action.at_mono
+                boot = node.boots
+
+                def fire(name: str = action.name) -> None:
+                    if node.boots == boot:  # timers die with the boot that set them
+                        self.dispatch(node, partial(Timer, name=name))
+
+                self.scheduler.schedule(max(at, self.scheduler.now), fire)
+            case Delivered():
+                self.log(self.scheduler.now, f"ACKED at origin {node.id}")
+                if node.on_delivered:
+                    node.on_delivered(action.bundle_id)
+            case DirectoryUpdate():
+                if node.on_directory:
+                    node.on_directory(action.doc, action.issuer)
+            case Emit():
+                pass
+
+    def _transmit(self, src: str, action: SendFrame) -> None:
+        if action.radio is RadioKind.LORA:
+            self._broadcast_lora(src, action)
+            return
+        self.wifi_bytes += len(action.frame)
+        link = self.links.get(frozenset((src, action.peer_id)))
+        if link is None or not link.up:
+            self.lost_frames += 1
+            return
+        start = max(self.scheduler.now, link.busy_until.get(src, 0.0))
+        done = start + transfer_s(len(action.frame), self.radio)
+        link.busy_until[src] = done
+        generation = link.generation
+
+        def arrive() -> None:
+            if not link.up or link.generation != generation:
+                self.lost_frames += 1  # the contact ended before this frame got through
+                return
+            frame = channel(link, action.frame, self.radio, self.scheduler.rng)
+            if frame is None:
+                self.lost_frames += 1
+                return
+            self.dispatch(
+                self.nodes[action.peer_id],
+                partial(FrameReceived, peer_id=src, radio=action.radio, frame=frame),
+            )
+
+        self.scheduler.schedule(done, arrive)
+
+    def _broadcast_lora(self, src: str, action: SendFrame) -> None:
+        """Everyone in LoRa range hears it after its airtime, if the sender has duty budget."""
+        r = self.radio
+        airtime = lora_airtime_s(len(action.frame), r.lora_sf, r.lora_bw_hz, r.lora_cr)
+        if not self._duty[src].admit(self.scheduler.now, airtime, r.lora_duty_cycle):
+            self.lora_over_budget += 1
+            return
+        here = self.position(src)
+        heard = partial(FrameReceived, peer_id=src, radio=RadioKind.LORA, frame=action.frame)
+        for node_id in sorted(self.nodes):
+            if node_id != src and math.dist(here, self.position(node_id)) <= r.lora_range_m:
+                self.scheduler.after(airtime, partial(self.dispatch, self.nodes[node_id], heard))
+        self.lora_log.append((self.scheduler.now, src))
+
+    def _in_range(self, a: str, b: str) -> bool:
+        return math.dist(self.position(a), self.position(b)) <= self.radio.wifi_range_m
+
+    def _tick(self) -> None:
+        for a, b in combinations(sorted(n for n, node in self.nodes.items() if node.up), 2):
+            pair = frozenset((a, b))
+            link = self.links.setdefault(pair, Link())
+            if self._in_range(a, b):
+                if not link.up and pair not in self._connecting:
+                    self._connecting.add(pair)
+                    self.scheduler.after(self.radio.wifi_setup_s, partial(self._link_up, a, b))
+            elif link.up:
+                link.up = False
+                link.generation += 1
+                link.busy_until.clear()
+                self.contacts.discard(pair)
+                self._notify_contact(ContactDown, a, b)
+        self.scheduler.after(self.tick_s, self._tick)
+
+    def _link_up(self, a: str, b: str) -> None:
+        pair = frozenset((a, b))
+        self._connecting.discard(pair)
+        if not self._in_range(a, b) or not (self.nodes[a].up and self.nodes[b].up):
+            return  # drove out of range, or lost power, before the link came up
+        self.links[pair].up = True
+        self.contacts.add(pair)
+        self.log(self.scheduler.now, f"CONTACT {a} <-> {b}")
+        self._notify_contact(ContactUp, a, b)
+
+    def _notify_contact(self, kind: type[ContactUp | ContactDown], a: str, b: str) -> None:
+        for x, y in ((a, b), (b, a)):
+            self.dispatch(self.nodes[x], partial(kind, peer_id=y, radio=RadioKind.WIFI))

@@ -1,0 +1,64 @@
+[project]
+name = "dtn-medical-mesh"
+version = "0.1.0"
+description = "Delay-tolerant mesh network for offline clinical data transport"
+license = "Apache-2.0"
+requires-python = ">=3.11"
+dependencies = [
+    "cbor2>=6.2.1",
+    "cryptography>=50.0.2",
+    "fastapi>=0.162.2",
+    "pynacl>=1.6.2",
+    "pyyaml>=6.0.3",
+    "sqlcipher3>=0.6.5",
+    "uvicorn>=0.54.0",
+    "websockets>=17.4",
+    "zfec>=1.6.0.0",
+]
+
+[project.scripts]
+dtn-demo = "simulation.live:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "ruff>=0.6",
+    "mypy>=1.11",
+    "hypothesis>=6.170.15",
+    "types-pyyaml>=6.0.12.20261103",
+    "httpx>=0.28.1",
+    "playwright==1.63.0",
+    "pmtiles>=3.8.1",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["node", "endpoint", "interface", "simulation"]
+
+[tool.pytest.ini_options]
+testpaths = ["validation"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM"]
+ignore = ["SIM108"]  # nested ternaries read worse than a short if/else
+
+[tool.mypy]
+strict = true
+python_version = "3.11"
+
+[[tool.mypy.overrides]]
+# shortcut: these ship no type stubs; wrap them in typed modules (node/erasure.py, node/storage.py).
+module = ["zfec", "sqlcipher3", "sqlcipher3.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# shortcut: pmtiles ships without type hints; only the one-off map build script calls it.
+module = ["tools.*"]
+disallow_untyped_calls = false
