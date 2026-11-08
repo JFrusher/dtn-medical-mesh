@@ -147,7 +147,11 @@ def el(tag: str, text: str = "", **attrs: object) -> str:
 
 
 def bar_chart(
-    title: str, unit: str, rows: list[tuple[str, Estimate]], max_value: float | None = None
+    title: str,
+    unit: str,
+    rows: list[tuple[str, Estimate]],
+    max_value: float | None = None,
+    fmt: str = "{:.0f}",
 ) -> str:
     """Horizontal bars with 95 % interval whiskers. One series: the title names it, no legend.
     Static (embedded in Markdown), so the report's tables are the readable view of each value."""
@@ -187,7 +191,8 @@ def bar_chart(
         out.append(el("line", class_="ci", x1=x(e.low), x2=x(e.high), y1=y + 12, y2=y + 12))
         for v in (e.low, e.high):
             out.append(el("line", class_="ci", x1=x(v), x2=x(v), y1=y + 7, y2=y + 17))
-        out.append(el("text", f"{e.value:.0f}{unit}", class_="t2", x=x(e.high) + 6, y=y + 17))
+        value = fmt.format(e.value) + unit
+        out.append(el("text", value, class_="t2", x=x(e.high) + 6, y=y + 17))
     out.append("</svg>")
     return "\n".join(out) + "\n"
 
@@ -232,7 +237,9 @@ def render(out: Path, title: str, scenario: str) -> str:
     (out / "critical_4h.svg").write_text(
         bar_chart("CRITICAL delivered within 4 h (%)", "%", critical, 100)
     )
-    (out / "p90_hours.svg").write_text(bar_chart("90th percentile delivery time (h)", " h", p90))
+    (out / "p90_hours.svg").write_text(
+        bar_chart("90th percentile delivery time (h)", " h", p90, fmt="{:.1f}")
+    )
     lines = [
         f"# {title}",
         "",

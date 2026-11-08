@@ -4,7 +4,7 @@ Companion to [`PROJECT_SPEC.md`](PROJECT_SPEC.md). Section references (§) point
 
 ## Status
 
-**Phases 0–7 are implemented and merged. Phase 8 (pilot-grade emulation) is implemented.** Phases 9–11 follow: pilot sizing, the staff app, and the admin console with node software. Hardware phases H1/H2 come after.
+**Phases 0–7 are implemented and merged. Phases 8 (pilot-grade emulation) and 9 (pilot sizing, [docs/sizing/arusha.md](docs/sizing/arusha.md)) are implemented.** Phases 10–11 follow: the staff app, and the admin console with node software. Hardware phases H1/H2 come after.
 
 ## How to use this plan
 
