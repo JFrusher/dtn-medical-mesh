@@ -520,6 +520,9 @@ Decisions made while turning the original design chat into this spec:
 | Repo name `dtn-mesh-medical` | `dtn-medical-mesh` | Matches the actual repository. |
 | No updates in the field | **Signed software updates over the mesh**, release key offline, A/B rollback (v0.2) | A district-wide pilot cannot rely on site visits to patch nodes. |
 | Crew app | **Status light only** (v0.2) | Crews should have nothing to do. |
+| Disc radio model (fixed range, setup, rate) | **Path loss + shadowing, BLE discovery, shared airtime, terrain and clutter, LoRa link budget per SF** (P8) | Defaults calibrated to the old ~100 m / ~2 km ranges; scenarios now set a path-loss exponent instead of a range. |
+| Free compute, exact vehicle loops | **Per-operation CPU/storage time; noisy schedules (night stops, breakdowns); on-foot couriers** (P8) | Arusha vans now park 20:00-06:00: 82/93 delivered in 24 h (was 89/93), zero silent loss. |
+| Arusha relay power | **10 W panel, 77 Wh LiFePO4** per §11.1 (P8) | The earlier 6 W / 30 Wh was below the spec's own hardware. |
 
 ## 18. Open questions
 1. ~~AEAD choice~~ (decided: XChaCha20-Poly1305).

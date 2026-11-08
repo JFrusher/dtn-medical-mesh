@@ -60,15 +60,17 @@ Open http://127.0.0.1:8000. You are looking at a day in the Arusha district, run
 
 Every scenario is checked for the same invariant at the end of the run: each message is **delivered and confirmed**, **flagged not delivered** at the clinic that sent it, or **still recoverable** from the clinic's own copy. Anything else is a silent loss and fails the run. CI runs the stress scenario on five seeds.
 
+Links follow path loss with shadowing, terrain and building clutter (Arusha), BLE discovery and shared airtime; nodes pay CPU and storage time; vehicles run noisy schedules with night stops and breakdowns. Every parameter and its source is in [`simulation/assumptions.yaml`](simulation/assumptions.yaml).
+
 | Scenario (seed 1) | Simulated | Messages | Delivered | Still in transit | Flagged not delivered | Silent losses |
 |---|---|---:|---:|---:|---:|---:|
-| **Arusha**, real roads: hospital, 4 clinics, ambulance, 2 vans, motorbike | 24 h | 93 | 89 | 4 | 0 | **0** |
+| **Arusha**, real roads and terrain: hospital, 4 clinics, ambulance, 2 vans, motorbike, a health worker on foot | 24 h | 93 | 82 | 11 | 0 | **0** |
 | **Rural clinics**: 4 clinics, solar street-light relays | 72 h | 201 | 199 | 2 | 0 | **0** |
-| **Disaster response**: aid posts, teams on foot, lossy links, failing relay | 24 h | 74 | 69 | 5 | 0 | **0** |
+| **Disaster response**: aid posts, teams on foot, lossy links, failing relay | 24 h | 74 | 71 | 3 | 0 | **0** |
 | **Island medevac**: ferry twice a day, plane every 2 days | 72 h | 48 | 43 | 2 | 3 | **0** |
-| **Stress**: every fault plus three attackers | 12 h | 59 | 58 | 1 | 0 | **0** |
+| **Stress**: every fault plus three attackers | 12 h | 59 | 54 | 5 | 0 | **0** |
 
-The three flagged on the islands are critical referrals with a 6-hour lifetime and a plane that calls every two days: the system said so, as designed.
+The three flagged on the islands are critical referrals with a 6-hour lifetime and a plane that calls every two days: the system said so, as designed. In Arusha the vans park from 20:00 to 06:00, so messages written at night wait for the morning round.
 
 <details>
 <summary><b>Full stress report</b></summary>

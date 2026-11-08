@@ -4,7 +4,7 @@ Companion to [`PROJECT_SPEC.md`](PROJECT_SPEC.md). Section references (§) point
 
 ## Status
 
-**Phases 0–7 are implemented and merged.** **Phases 8–11 (spec v0.2) are planned:** pilot-grade emulation, pilot sizing, the staff app, and the admin console with node software. Hardware phases H1/H2 follow.
+**Phases 0–7 are implemented and merged. Phase 8 (pilot-grade emulation) is implemented.** Phases 9–11 follow: pilot sizing, the staff app, and the admin console with node software. Hardware phases H1/H2 come after.
 
 ## How to use this plan
 
