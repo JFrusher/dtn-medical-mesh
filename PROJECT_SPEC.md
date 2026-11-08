@@ -14,7 +14,7 @@
 
 `dtn-medical-mesh` is an offline-first, **delay-tolerant network (DTN)** that moves encrypted clinical data between health sites that have no reliable internet. It uses the vehicles and people already travelling between those sites as couriers: ambulances, supply vans, outreach staff.
 
-Small, ruggedised Raspberry Pi nodes are mounted wherever it helps: on a clinic table, on an ambulance's back shelf, on a street light. They find each other automatically, swap encrypted shards when they come within radio range, and carry them onward. An installable web app on a phone, tablet or laptop is the only thing staff ever touch; crews just see a status light. Clinic staff write a referral or attach a photo, and some time later the hospital receives it and can reply.
+Small, ruggedised Raspberry Pi nodes are mounted wherever it helps: on a clinic table, on an ambulance's back shelf, on a street light. They find each other automatically, swap encrypted shards when they come within radio range, and carry them onward. A messaging-style web app on a laptop is the only thing staff ever touch; crews just see a status light. Clinic staff write a referral or attach a photo, and some time later the hospital receives it and can reply.
 
 Relay nodes are **blind carriers**. They see the minimum routing metadata needed to move data and never hold keys that could decrypt clinical content.
 
@@ -300,7 +300,7 @@ The daemon is the second driver of `NodeCore` (the emulator is the first). It ow
 2. **Replace.** A failed node is revoked and a new one provisioned under a new node ID; shards it held are recovered by redundancy and the origin's retained copy, never by copying its disk.
 3. **Stolen or lost.** The admin revokes it; the revocation list reaches the mesh with top priority (§7.6). Its certificate also expires within 14 days without a hub visit.
 4. **Decommission.** Revoke, then wipe by destroying the secure element's storage key (the SQLCipher store becomes unreadable).
-5. **Endpoint devices** (phones, laptops) are provisioned the same way: the device generates its endpoint keys, the hub adds them to the signed directory; a lost device is removed from the directory and its keys never receive new messages.
+5. **Endpoint laptops** are provisioned the same way: the laptop generates its endpoint keys, the hub adds them to the signed directory; a lost laptop is removed from the directory and its keys never receive new messages.
 
 ### 9.5 Signed software updates over the mesh
 - **Package.** The hub publishes an update as a hub document (§7.6) of kind `update`: version, target roles, minimum current version, payload hash and size. The payload itself travels as a normal `ROUTINE` bundle addressed to every service area, erasure-coded like any message.
@@ -309,27 +309,27 @@ The daemon is the second driver of `NodeCore` (the emulator is the first). It ow
 - **Pacing.** Updates never displace clinical traffic: lowest priority after `TELEMETRY`, and the hub can stage rollouts (relays first, then mules, then sites).
 - **Emulation.** The emulator models update spread and the rollback path; the real A/B mechanism is built in hardware phase H1.
 
-### 9.6 Laptop/phone ⇄ site node link
-Staff devices reach the clinic's site node over the node's own **local Wi-Fi access point** (and USB for laptops). The API is the existing endpoint API (§10.1), served by the site node and authenticated with the device's endpoint key: a device that is not in the directory cannot inject. The site node never sees plaintext: devices hand it finished shards and receive rebuilt ciphertext.
+### 9.6 Laptop ⇄ site node link
+The clinic laptop reaches its site node over the node's own **local Wi-Fi access point** or USB. The link is authenticated with the laptop's endpoint key: a laptop that is not in the directory cannot inject. The site node never sees plaintext: the laptop's Python endpoint (§7.4) hands it finished shards and receives rebuilt ciphertext.
 
 ## 10. Staff app and consoles
 
-### 10.1 One app, phones and laptops
-- An **installable web app** (PWA) served by the clinic's site node; works fully offline and on any Android phone, tablet or laptop browser. No app store needed.
-- All clinical crypto runs **on the device** (WebCrypto / libsodium-wasm), so plaintext never reaches the site node. *This moves endpoint crypto from Python to the browser; the Python `endpoint/` package remains the reference implementation and test oracle.*
+### 10.1 One app, on the clinic laptop
+- A **web app** (PWA) served locally by the endpoint service on the clinic laptop; works fully offline in the laptop's browser.
+- All clinical crypto runs in the Python `endpoint/` package on the laptop (§7.4), so plaintext never reaches the site node.
 - **Languages:** built on a translation catalogue from the start (ICU MessageFormat strings, no text in code). English and Swahili first; every Swahili string reviewed by a native-speaking clinician before a pilot. Layout tolerates longer strings; numbers, dates and units are localised.
-- **Accessibility:** works one-handed on a 360 px phone; minimum 44 px touch targets; screen-reader labels; never colour alone for status.
+- **Accessibility:** full keyboard use; minimum 44 px targets for touchscreen laptops; screen-reader labels; never colour alone for status.
 
-### 10.2 Sign-in on shared devices
-- Each **device** holds its clinic's endpoint keys (§9.4), encrypted at rest under a device secret and unlocked only while the app is open.
+### 10.2 Sign-in on the shared laptop
+- Each clinic **laptop** holds its clinic's endpoint keys (§9.4), encrypted at rest and unlocked only while the app is open.
 - Each **staff member** signs in with a short personal PIN (rate-limited, locks after repeated failures). Messages record who wrote them inside the signed payload; the hospital sees "Nurse A. Mollel, Murieti".
-- Auto-lock after inactivity (default 5 min, assumption). A lost device is removed from the directory by the admin.
+- Auto-lock after inactivity (default 5 min, assumption). A lost laptop is removed from the directory by the admin.
 
 ### 10.3 Clinic workflow
 | Screen | Purpose |
 |---|---|
 | **Patients** | List per clinic: local ID, name, age, sex. Messages are grouped by patient, not by conversation. |
-| **New referral** | Structured form mapped to FHIR `ServiceRequest`: reason, working diagnosis, history, vitals, treatment given, urgency; camera capture for photos (wounds, lab slips). Free-text note always allowed. |
+| **New referral** | Structured form mapped to FHIR `ServiceRequest`: reason, working diagnosis, history, vitals, treatment given, urgency; photo attachments (wounds, lab slips). Free-text note always allowed. |
 | **Case view** | One referral's thread: status (*Sent, In transit, Opened, Accepted / Declined / Needs information*), hospital advice, results, and the delivery deadline. |
 | **Results** | Lab and imaging results from the hospital (FHIR `DiagnosticReport`), linked to the patient. |
 
@@ -345,8 +345,8 @@ Ambulance and transport crews never interact with the system. The node's status 
 
 ### 10.6 Admin console (hub)
 For the network administrator, on the hub's local network only:
-- **Inventory:** every node and device, role, service area, software version, last contact, battery and storage from health telemetry.
-- **Provision / revoke** nodes and devices (§9.4); **publish** the endpoint directory and revocation list.
+- **Inventory:** every node and laptop, role, service area, software version, last contact, battery and storage from health telemetry.
+- **Provision / revoke** nodes and laptops (§9.4); **publish** the endpoint directory and revocation list.
 - **Updates:** stage and monitor signed software rollouts (§9.5).
 - **Network health:** delivery times per clinic, messages flagged NOT DELIVERED, refusals by reason (possible attacks), nodes not seen recently.
 All admin actions are signed with the operator's hub credential and logged.
@@ -518,7 +518,6 @@ Decisions made while turning the original design chat into this spec:
 | Fixed k=4, m=2 | **Parity scales with priority** | More paths for important data. |
 | Cap each peer below *k* shards of a bundle | **No cap** (P4.S12 dropped) | Mules copy rather than move shards; a cap would stop one mule completing a delivery and raise the NOT DELIVERED risk. |
 | Repo name `dtn-mesh-medical` | `dtn-medical-mesh` | Matches the actual repository. |
-| Laptop-only staff interface | **One installable web app for phones and laptops**, crypto on the device (v0.2) | Clinics in the pilot region mostly use Android phones and tablets. |
 | No updates in the field | **Signed software updates over the mesh**, release key offline, A/B rollback (v0.2) | A district-wide pilot cannot rely on site visits to patch nodes. |
 | Crew app | **Status light only** (v0.2) | Crews should have nothing to do. |
 
@@ -533,5 +532,4 @@ Decisions made while turning the original design chat into this spec:
 8. Pilot jurisdiction: Tanzania (Arusha) is the working assumption. To confirm with a partner: the permitted LoRa band and duty cycle, the data-protection obligations under Tanzanian law, and the clinical safety process the partner follows.
 9. Real vehicle schedules and message volumes for the pilot district (all current figures are estimates).
 10. Site irradiance data for sizing solar relays (§11.2).
-11. Browser crypto library for the staff app (WebCrypto plus a libsodium WebAssembly build for XChaCha20 and Ed25519), checked against the Python reference with shared test vectors.
-12. PIN policy details (length, lockout, recovery) agreed with the partner's information governance lead.
+11. PIN policy details (length, lockout, recovery) agreed with the partner's information governance lead.
