@@ -43,6 +43,7 @@ MESSAGE_FIELDS = [
 RUN_FIELDS = [
     "variant",
     "seed",
+    "duration_s",
     "sent",
     "delivered",
     "violations",
@@ -134,6 +135,7 @@ def run_job(job: Job) -> tuple[list[dict[str, Any]], dict[str, Any]]:
         run_row = {
             "variant": job.variant,
             "seed": job.seed,
+            "duration_s": scenario.duration_s,
             "sent": report.sent,
             "delivered": report.by_status.get("DELIVERED", 0),
             "violations": len(report.violations),

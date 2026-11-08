@@ -1,0 +1,13 @@
+# Arusha sizing (docs/sizing/arusha.md): what each vehicle, relay and setting is worth.
+# Volumes are estimates (simulation/scenarios/arusha.yaml): 93 messages a day, 3 critical.
+scenario: arusha
+seeds: 10
+variants:
+  baseline: {}
+  no relays: {drop: [LIGHT_MOSHI_ROAD, LIGHT_NAIROBI_ROAD]}
+  no motorbike: {drop: [OUTREACH_BIKE]}
+  no health worker: {drop: [HEALTH_WORKER]}
+  no ambulance: {drop: [AMBULANCE]}
+  double volume: {volume: 2}
+  more parity: {parity: {CRITICAL: 12, URGENT: 8}}
+  worse radio: {set: {radio.wifi_ple: 3.4}}
