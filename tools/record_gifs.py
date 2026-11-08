@@ -22,7 +22,7 @@ import uvicorn
 from playwright.sync_api import Page, ViewportSize, sync_playwright
 
 from interface.app import create_app
-from simulation.live import LiveSim
+from simulation.live import DEMO_PIN, LiveSim
 from simulation.mobility import Route
 from simulation.runner import build
 from simulation.scenario import load_scenario
@@ -122,8 +122,12 @@ def chat() -> None:
         page.locator(".open.left").click()
         left = page.locator("#left")
         time.sleep(0.6)
-        left.locator("textarea").type("Referral: 28F, 34 weeks, BP 160/110, headache", delay=35)
-        left.locator(".add-vitals").click()
+        left.locator("input[type=password]").type(DEMO_PIN, delay=120)
+        left.get_by_role("button", name="Sign in").click()
+        time.sleep(0.6)
+        left.get_by_role("tab", name="New referral").click()
+        left.locator("[name=reason]").type("34 weeks, BP 160/110, headache", delay=35)
+        left.locator("[name=diagnosis]").type("Pre-eclampsia", delay=35)
         left.locator("input[data-code=bp-systolic]").type("160", delay=60)
         left.locator("input[data-code=heart-rate]").type("104", delay=60)
         left.locator("button[data-p=CRITICAL]").click()
@@ -132,7 +136,7 @@ def chat() -> None:
         page.request.post(page.url + "api/control", data={"paused": False, "speed": 90})
         hospital = sim.r.endpoints["hospital"]
         deadline = time.monotonic() + 60
-        while not any("34 weeks" in r.message.text for r in hospital.inbox):  # watch the map
+        while not any("34 weeks" in r.message.summary() for r in hospital.inbox):  # watch the map
             assert time.monotonic() < deadline, "referral never reached the hospital"
             time.sleep(0.2)
         time.sleep(1.5)

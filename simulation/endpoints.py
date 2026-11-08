@@ -24,6 +24,8 @@ class Received:
     content: bytes  # FHIR-lite (endpoint.fhir), as signed by the sender
     bundle_id: bytes
     at_s: float  # simulation time it was opened
+    priority: Priority  # from the bundle header: the triage inbox sorts by it
+    sent_s: float  # simulation time it was written (header creation time)
 
     @property
     def message(self) -> Message:
@@ -114,6 +116,8 @@ class VirtualEndpoint:
             opened.content,
             bundle.header.bundle_id,
             self.world.scheduler.now,
+            bundle.header.priority,
+            bundle.header.created / 1000 - SIM_EPOCH,
         )
         self.inbox.append(received)
         self.world.log(self.world.scheduler.now, f"OPENED by {self.name}")

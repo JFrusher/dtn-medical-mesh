@@ -30,6 +30,7 @@ Format: `REQ-<AREA>-<NN>`. Spec references are to `PROJECT_SPEC.md`.
 | REQ-SEC-11 | Node storage is encrypted at rest with a key held by the secure element. | §7.7 |
 | REQ-SEC-12 | Per-injector rate limits stop one node flooding the mesh. | §7.1 |
 | REQ-SEC-13 | Seeded (deterministic) entropy is unreachable from production code. | Plan |
+| REQ-SEC-14 | Endpoint keys on the staff laptop are encrypted at rest under each staff member's PIN and the device secret; repeated wrong PINs lock sign-in, and a session locks after inactivity. | §10.2 |
 
 ## DUR — Integrity and durability
 
@@ -71,3 +72,14 @@ Format: `REQ-<AREA>-<NN>`. Spec references are to `PROJECT_SPEC.md`.
 | REQ-SIM-01 | The emulator drives the same `NodeCore` code that runs on hardware. | §12.1 |
 | REQ-SIM-02 | A scenario run is fully reproducible from its seed. | §12.3 |
 | REQ-SIM-03 | The emulator can inject every pressure listed in §12.2. | §12.2 |
+
+## APP — Staff app
+
+| ID | Requirement | Spec |
+|---|---|---|
+| REQ-APP-01 | Every user-facing string comes from a translation catalogue; staff can switch language, and an unreviewed translation is flagged as a draft. | §10.1 |
+| REQ-APP-02 | Each message records the staff member who wrote it inside the signed payload. | §10.2 |
+| REQ-APP-03 | Patient identifiers inside a message are limited to name, age, sex and local ID. | §10.3 |
+| REQ-APP-04 | A referral is a structured FHIR `ServiceRequest`; the hospital's Accept, Decline or Need information answer is itself a tracked message linked to it. | §10.3, §10.4 |
+| REQ-APP-05 | The hospital's triage inbox lists arrivals by urgency, then oldest first, with how long each took to arrive. | §10.4 |
+| REQ-APP-06 | Results travel back to the clinic as FHIR `DiagnosticReport` messages linked to the patient. | §10.5 |

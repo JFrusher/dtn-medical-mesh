@@ -5,6 +5,7 @@ uv run dtn-demo [scenario] [--seed N] [--speed X] [--port P]
 
 import argparse
 import tempfile
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -12,10 +13,11 @@ from typing import Any
 import uvicorn
 
 from endpoint import fhir
-from endpoint.fhir import Attachment, Message, Vital
+from endpoint.fhir import Attachment, Message, Patient, Referral, Result, Vital
+from endpoint.keystore import KeyStore
 from endpoint.padding import PayloadTooLarge
 from endpoint.state import Status
-from interface.app import MessageIn, create_app
+from interface.app import MessageIn, PatientIn, create_app
 from interface.telemetry import Telemetry
 from node.bundle import Priority
 from node.config import PRIORITY_CLASSES
@@ -23,14 +25,53 @@ from node.core import NodeCore
 from simulation.mobility import Route
 from simulation.runner import RunResult, build
 from simulation.scenario import load_scenario
-from simulation.virtual_hw import SIM_EPOCH
+from simulation.virtual_hw import SIM_EPOCH, SeededEntropy
+
+# shortcut: every emulated staff member shares one published demo PIN; a real laptop enrols
+# each person's own PIN at provisioning (spec §9.4).
+DEMO_PIN = "2580"
+STAFF = {
+    "hospital": ["Dr. N. Mushi", "Nurse R. Kimaro"],
+    "clinic": ["Nurse A. Mollel", "Clinical officer J. Laizer"],
+}
+DEMO_PATIENTS = [
+    ("Neema Lyimo", 28, "female"),
+    ("Baraka Massawe", 4, "male"),
+    ("Rehema Swai", 61, "female"),
+]  # fictional
 
 
 class LiveSim:
+    """The emulator as the interface's backend. Each endpoint stands for a clinic laptop: its
+    keys are sealed per staff member in a KeyStore and sign-in unlocks them. shortcut: the
+    emulated laptop keeps decrypting arrivals while nobody is signed in; a real one queues
+    ciphertext until someone signs in."""
+
     def __init__(self, result: RunResult, speed: float = 60.0) -> None:
         self.r = result
         self.speed = speed
         self.paused = False
+        self.keystores: dict[str, KeyStore] = {}
+        self.registers: dict[str, list[Patient]] = {}
+        for name, e in result.endpoints.items():
+            entropy = SeededEntropy(f"{name}:laptop")
+            store = KeyStore(entropy.random_bytes(32))
+            for staff in STAFF[self.role(name)]:
+                store.enrol(staff, DEMO_PIN, e.keys, entropy)
+            self.keystores[name] = store
+            prefix = name[:3].upper()
+            self.registers[name] = (
+                [
+                    Patient(f"{prefix}-{i + 1:04}", n, a, s)
+                    for i, (n, a, s) in enumerate(DEMO_PATIENTS)
+                ]
+                if self.role(name) == "clinic"
+                else []
+            )
+
+    def role(self, endpoint: str) -> str:
+        site = self.r.endpoints[endpoint].site
+        return "hospital" if site.config.role.value == "hub" else "clinic"
 
     @property
     def now(self) -> float:
@@ -108,10 +149,51 @@ class LiveSim:
                 "name": e.name,
                 "node": e.site.id,
                 "sa": e.site.config.sa,
+                "role": self.role(e.name),
+                "staff": STAFF[self.role(e.name)],
                 "contacts": sorted(e.directory),
             }
             for e in self.r.endpoints.values()
         ]
+
+    def sign_in(self, endpoint: str, staff: str, pin: str) -> None:
+        keys = self.keystores[endpoint].unlock(staff, pin, time.monotonic())
+        assert keys.signing_public == self.r.endpoints[endpoint].keys.signing_public
+
+    def patients(self, endpoint: str) -> list[dict[str, Any]]:
+        """A clinic's own register; at the hospital, the patients referred to it."""
+        if self.role(endpoint) == "clinic":
+            known = self.registers[endpoint]
+        else:
+            seen: dict[str, Patient] = {}
+            for r in self.r.endpoints[endpoint].inbox:
+                if (p := r.message.patient) is not None:
+                    seen[p.local_id] = p
+            known = list(seen.values())
+        return [_patient(p) for p in known]
+
+    def add_patient(self, endpoint: str, patient: PatientIn) -> None:
+        p = Patient(patient.local_id.strip(), patient.name.strip(), patient.age, patient.sex)
+        if any(q.local_id == p.local_id for q in self.registers[endpoint]):
+            raise ValueError(f"local ID {p.local_id} is already registered")
+        self.registers[endpoint].append(p)
+
+    def journeys(self) -> list[dict[str, Any]]:
+        out = []
+        for e in self.r.endpoints.values():
+            for bid, sent in e.sent.items():
+                content, _, at = e.sent_content[bid]
+                out.append(
+                    {
+                        "id": bid.hex(),
+                        "t": at,
+                        "at": _clock(at),
+                        "from": e.name,
+                        "to": sent.recipient,
+                        "text": _decode(content).summary(),
+                    }
+                )
+        return sorted(out, key=lambda j: -float(j["t"]))
 
     def journey(self, bundle_hex: str) -> dict[str, Any]:
         """Where one message has been and where its pieces are now, from custody receipts."""
@@ -168,36 +250,37 @@ class LiveSim:
             msg = _decode(content)
             out.append(
                 {
+                    **_fields(msg),
                     "id": bid.hex(),
                     "direction": "out",
                     "peer": sent.recipient,
                     "priority": prio.name,
                     "status": e.status(bid).value,
                     "flag_at": _clock(sent.expires_ms / 1000 - SIM_EPOCH),
+                    "t": at,
                     "at": _clock(at),
-                    "text": msg.text,
-                    "summary": msg.summary(),
-                    "in_response_to": msg.in_response_to,
                 }
             )
         for r in e.inbox:
-            msg = r.message
             out.append(
                 {
+                    **_fields(r.message),
                     "id": r.bundle_id.hex(),
                     "direction": "in",
                     "peer": r.sender or "UNVERIFIED SENDER",
-                    "priority": None,
+                    "priority": r.priority.name,
                     "status": "received",
+                    "t": r.at_s,
                     "at": _clock(r.at_s),
-                    "text": msg.text,
-                    "summary": msg.summary(),
-                    "in_response_to": msg.in_response_to,
+                    "written_at": _clock(r.sent_s),
+                    "waited_s": r.at_s - r.sent_s,
                 }
             )
-        return sorted(out, key=lambda m: m["at"])
+        return sorted(out, key=lambda m: float(m["t"]))
 
-    def send(self, endpoint: str, msg: MessageIn, attachments: list[tuple[str, str, bytes]]) -> str:
+    def send(
+        self, endpoint: str, msg: MessageIn, attachments: list[tuple[str, str, bytes]], author: str
+    ) -> str:
         e = self.r.endpoints[endpoint]
         if msg.to not in e.directory or msg.to == endpoint:
             raise ValueError(f"{msg.to!r} is not in {endpoint}'s directory")
@@ -206,6 +289,11 @@ class LiveSim:
             vitals=tuple(Vital(v.code, v.value) for v in msg.vitals),
             attachments=tuple(Attachment(t, c, d) for t, c, d in attachments),
             in_response_to=msg.in_response_to,
+            author=author,
+            patient=Patient(**msg.patient.model_dump()) if msg.patient else None,
+            referral=Referral(**msg.referral.model_dump()) if msg.referral else None,
+            decision=msg.decision,
+            result=Result(**msg.result.model_dump()) if msg.result else None,
         )
         try:
             bid = e.send_message(msg.to, message, Priority[msg.priority])
@@ -217,6 +305,26 @@ class LiveSim:
 
 def _decode(content: bytes) -> Message:
     return fhir.decode(content)
+
+
+def _patient(p: Patient) -> dict[str, Any]:
+    return {"local_id": p.local_id, "name": p.name, "age": p.age, "sex": p.sex}
+
+
+def _fields(m: Message) -> dict[str, Any]:
+    """What the staff app shows of a message's content."""
+    return {
+        "text": m.text,
+        "summary": m.summary(),
+        "in_response_to": m.in_response_to,
+        "author": m.author,
+        "patient": _patient(m.patient) if m.patient else None,
+        "referral": m.referral.__dict__ if m.referral else None,
+        "decision": m.decision,
+        "result": m.result.__dict__ if m.result else None,
+        "vitals": [{"code": v.code, "value": v.value} for v in m.vitals],
+        "attachments": [{"title": a.title, "bytes": len(a.data)} for a in m.attachments],
+    }
 
 
 def _clock(t: float) -> str:

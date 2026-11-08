@@ -4,6 +4,8 @@ import json
 import re
 from pathlib import Path
 
+import pytest
+
 STATIC = Path(__file__).parents[2] / "interface/static"
 
 
@@ -31,6 +33,7 @@ def placeholders(s: str) -> set[str]:
     return names
 
 
+@pytest.mark.req("REQ-APP-01")
 def test_catalogues_match_key_for_key_and_placeholder_for_placeholder() -> None:
     en = json.loads((STATIC / "i18n/en.json").read_text())
     sw = json.loads((STATIC / "i18n/sw.json").read_text())

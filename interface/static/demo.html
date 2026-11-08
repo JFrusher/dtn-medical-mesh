@@ -53,7 +53,7 @@
   </footer>
 
   <script type="module">
-    import { Chat } from "/static/chat.js";
+    import { Staff } from "/static/staff.js";
     import { NetMap, pretty } from "/static/map.js";
     import { Journey } from "/static/journey.js";
     import { LANGUAGES, reviewed, savedLanguage, setLanguage, t } from "/static/i18n.js";
@@ -72,13 +72,18 @@
     const endpoints = await (await fetch("/api/endpoints")).json();
     const hub = endpoints.find(e => e.name.includes("hospital")) ?? endpoints.at(-1);
     const site = endpoints.find(e => e !== hub);
-    const chats = { left: new Chat(document.getElementById("left"), endpoints, site.name),
-                    right: new Chat(document.getElementById("right"), endpoints, hub.name) };
+    const chats = { left: new Staff(document.getElementById("left"), endpoints, site.name),
+                    right: new Staff(document.getElementById("right"), endpoints, hub.name) };
 
     for (const btn of document.querySelectorAll(".open")) {
       const side = btn.dataset.drawer, drawer = document.getElementById(side);
-      const label = () => { btn.innerHTML = `${pretty(chats[side].me.value)}<span class="n">${chats[side].count || ""}</span>`; };
-      btn.onclick = () => { drawer.hidden = false; btn.hidden = true; drawer.querySelector("textarea").focus(); };
+      const label = () => {
+        btn.textContent = pretty(chats[side].place);
+        const n = document.createElement("span");
+        n.className = "n"; n.textContent = chats[side].count || "";
+        btn.append(n);
+      };
+      btn.onclick = () => { drawer.hidden = false; btn.hidden = true; drawer.querySelector("input, select, textarea, button").focus(); };
       drawer.addEventListener("close-drawer", () => { drawer.hidden = true; btn.hidden = false; btn.focus(); });
       chats[side].onChange = label; label();
     }

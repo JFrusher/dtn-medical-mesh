@@ -23,13 +23,10 @@ export class Journey {
   }
 
   async loadChoices() {
-    const all = (await Promise.all(this.endpoints.map(async e =>
-      (await (await fetch(`/api/endpoints/${e.name}/messages`)).json())
-        .filter(m => m.direction === "out").map(m => ({ ...m, from: e.name })))))
-      .flat().sort((a, b) => a.at < b.at ? 1 : -1).slice(0, 40);
+    const all = (await (await fetch("/api/journeys")).json()).slice(0, 40);  // newest first
     const keep = this.pick.value;
     this.pick.replaceChildren(new Option(t("journey.choose"), ""), ...all.map(m => new Option(t("journey.option",
-      { time: m.at.split(" ")[1].slice(0, 5), from: pretty(m.from), to: pretty(m.peer), text: m.text.slice(0, 40) }), m.id)));
+      { time: m.at.split(" ")[1].slice(0, 5), from: pretty(m.from), to: pretty(m.to), text: m.text.slice(0, 40) }), m.id)));
     this.pick.value = keep;
   }
 
