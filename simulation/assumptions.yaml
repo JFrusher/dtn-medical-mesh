@@ -14,7 +14,11 @@ radio:
   ble_adv_interval_s: {value: 0.2, unit: s, source: estimate, ref: "BLE advertising interval; Bluetooth Core spec allows 20 ms-10.24 s"}
   ble_scan_duty: {value: 0.25, unit: "", source: estimate, ref: "scan window / scan interval; chance each advertisement is heard"}
   wifi_join_s: {value: 1.5, unit: s, source: estimate, ref: "Wi-Fi Direct join, key exchange and first frame after BLE discovery"}
-  lora_range_m: {value: 2000, unit: m, source: estimate, ref: "SX1262 SF9, urban"}
+  lora_tx_dbm: {value: 14, unit: dBm, source: published, ref: "ETSI EN 300 220 25 mW ERP limit at 868 MHz; set per region"}
+  lora_antenna_dbi: {value: 2, unit: dBi, source: estimate, ref: "external whip, each end"}
+  lora_pl1m_db: {value: 31.2, unit: dB, source: published, ref: "free-space loss at 1 m, 868.1 MHz (Friis)"}
+  lora_ple: {value: 3.5, unit: "", source: estimate, ref: "urban LoRa measurements report 2.3-4.0 (e.g. Petajajarvi et al. 2015); gives ~2 km at SF9"}
+  lora_shadow_sigma_db: {value: 8, unit: dB, source: estimate, ref: "drawn per frame and receiver"}
   lora_sf: {value: 9, unit: "", source: estimate, ref: "spreading factor chosen for range vs airtime"}
   lora_bw_hz: {value: 125000, unit: Hz, source: published, ref: "LoRaWAN default bandwidth"}
   lora_cr: {value: 1, unit: "", source: published, ref: "coding rate 4/5"}

@@ -33,6 +33,8 @@ from node.pki import Identity, Role
 from node.storage import STORAGE_KEY_SLOT, Storage
 from simulation.mobility import Mobility
 from simulation.radio_model import (
+    LORA_SENSITIVITY_DBM,
+    LORA_WAVELENGTH_M,
     WIFI_WAVELENGTH_M,
     DutyCycle,
     Link,
@@ -40,6 +42,8 @@ from simulation.radio_model import (
     ble_discovery_s,
     channel,
     lora_airtime_s,
+    lora_mean_rx_dbm,
+    lora_reach_m,
     wifi_mean_rx_dbm,
     wifi_rate,
     wifi_reach_m,
@@ -272,10 +276,16 @@ class World:
         if not self._duty[src].admit(self.scheduler.now, airtime, r.lora_duty_cycle):
             self.lora_over_budget += 1
             return
-        here = self.position(src)
+        here, reach = self.position(src), lora_reach_m(r)
         heard = partial(FrameReceived, peer_id=src, radio=RadioKind.LORA, frame=action.frame)
+        sigma = r.lora_shadow_sigma_db
         for node_id in sorted(self.nodes):
-            if node_id != src and math.dist(here, self.position(node_id)) <= r.lora_range_m:
+            d = math.dist(here, self.position(node_id))
+            if node_id == src or d > reach:
+                continue
+            shadow = max(-3 * sigma, min(3 * sigma, self.scheduler.rng.gauss(0, sigma)))
+            loss = shadow + self._terrain_db(src, node_id, LORA_WAVELENGTH_M)
+            if lora_mean_rx_dbm(d, r) - loss >= LORA_SENSITIVITY_DBM[r.lora_sf]:
                 self.scheduler.after(airtime, partial(self.dispatch, self.nodes[node_id], heard))
         self.lora_log.append((self.scheduler.now, src))
 

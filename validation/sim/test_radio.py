@@ -16,12 +16,13 @@ from simulation.radio_model import (
     ble_discovery_s,
     channel,
     lora_airtime_s,
+    lora_reach_m,
     wifi_mean_rx_dbm,
     wifi_rate,
     wifi_reach_m,
 )
 from simulation.scheduler import Scheduler
-from simulation.world import World
+from simulation.world import SimNode, World
 
 
 def drive_by(tmp_path: Path, speed: float) -> World:
@@ -129,3 +130,37 @@ def test_lora_airtime_and_duty_cycle() -> None:
     sent = sum(budget.admit(t, 1.0, duty=0.01) for t in range(60))
     assert sent == 36  # 1% of an hour is 36 s of airtime
     assert budget.admit(3600 + 1, 1.0, duty=0.01)  # the oldest airtime has rolled out
+
+
+@pytest.mark.req("REQ-SIM-03", "REQ-PROTO-09")
+def test_lora_budget_gives_about_2_km_at_sf9_and_more_at_sf12() -> None:
+    def mean_range(sf: int) -> float:
+        p = RadioParams.defaults(lora_sf=sf)
+        return float(lora_reach_m(p) / 10 ** (3 * p.lora_shadow_sigma_db / (10 * p.lora_ple)))
+
+    assert 1800 < mean_range(9) < 2300
+    assert mean_range(12) > 1.6 * mean_range(9) > 1.6 * mean_range(7)  # +8 dB, +6 dB of budget
+
+
+@pytest.mark.req("REQ-SIM-03", "REQ-PROTO-09")
+def test_lora_broadcast_reaches_near_nodes_not_far_ones(tmp_path: Path) -> None:
+    radio = RadioParams.defaults(lora_shadow_sigma_db=0)
+    w = World(Scheduler(seed=1), tmp_path, radio)
+    for name, x in (("HUB", 0), ("NEAR", 1500), ("FAR", 3000)):
+        w.add_node(
+            NodeConfig(
+                name, Role.HUB if name == "HUB" else Role.RELAY, "SA_H" if name == "HUB" else None
+            ),
+            Static((x, 0)),
+        )
+    provision(list(w.nodes.values()), seed=1)
+    w.start()
+    heard: list[str] = []
+
+    def record(node: SimNode, event: object) -> None:
+        heard.append(node.id)
+
+    w.dispatch = record  # type: ignore[method-assign,assignment]
+    w._transmit("HUB", SendFrame(peer_id="", radio=RadioKind.LORA, frame=b"z" * 20))
+    w.scheduler.run_until(5)
+    assert heard == ["NEAR"]

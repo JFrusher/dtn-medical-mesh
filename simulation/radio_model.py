@@ -28,7 +28,11 @@ class RadioParams:
     antenna_relay_m: float
     antenna_mule_m: float
     clutter_db_per_100m: float
-    lora_range_m: float
+    lora_tx_dbm: float
+    lora_antenna_dbi: float
+    lora_pl1m_db: float
+    lora_ple: float
+    lora_shadow_sigma_db: float
     lora_sf: int
     lora_bw_hz: float
     lora_cr: int  # coding rate 4/(4+cr)
@@ -84,6 +88,21 @@ class DutyCycle:
 
 WIFI_WAVELENGTH_M = 299_792_458 / 2.437e9  # channel 6
 LORA_WAVELENGTH_M = 299_792_458 / 868.1e6
+
+
+# Semtech SX1276 datasheet table 13: sensitivity (dBm) at 125 kHz by spreading factor
+# (the SX1262 is within about 1 dB).
+LORA_SENSITIVITY_DBM = {7: -123.0, 8: -126.0, 9: -129.0, 10: -132.0, 11: -134.5, 12: -137.0}
+
+
+def lora_mean_rx_dbm(d_m: float, p: RadioParams) -> float:
+    return p.lora_tx_dbm + 2 * p.lora_antenna_dbi - path_loss_db(d_m, p.lora_pl1m_db, p.lora_ple)
+
+
+def lora_reach_m(p: RadioParams) -> float:
+    """Distance beyond which even a +3 sigma draw cannot be heard at this spreading factor."""
+    budget = p.lora_tx_dbm + 2 * p.lora_antenna_dbi - LORA_SENSITIVITY_DBM[p.lora_sf]
+    return float(10 ** ((budget + 3 * p.lora_shadow_sigma_db - p.lora_pl1m_db) / (10 * p.lora_ple)))
 
 
 # IEEE 802.11n-2009 table 20-23: minimum receiver sensitivity (dBm) and PHY rate (Mbit/s)
