@@ -82,6 +82,7 @@ def summary_from(
         "bloom": Bloom.of([b"s" + i for i in ids] + [b"a" + a for a in acks]).encode(),
         "certs": [],
         "docs": {},
+        "health": {},
         "prophet": {},
         "from": encode_cert(me.cert),
         "issuer": encode_cert(me.issuer) if me.issuer else None,

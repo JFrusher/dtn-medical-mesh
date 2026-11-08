@@ -77,6 +77,19 @@ class MainsPower:
         return PowerState(external_power=True, battery_pct=None)
 
 
+def enclosure_c(t: float, outdoor: bool) -> float:
+    """Enclosure temperature: the day's ambient curve, plus sun on a sealed outdoor enclosure."""
+    e = group("environment")
+    hour = (t / 3600) % 24
+    mid, amp = (
+        (e["ambient_max_c"] + e["ambient_min_c"]) / 2,
+        (e["ambient_max_c"] - e["ambient_min_c"]) / 2,
+    )
+    ambient = mid + amp * math.cos(2 * math.pi * (hour - 15) / 24)
+    sun = max(0.0, math.sin(math.pi * (hour - 6) / 12)) if outdoor else 0.0
+    return ambient + e["sun_gain_c"] * sun
+
+
 MONTHS = ("jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec")
 
 

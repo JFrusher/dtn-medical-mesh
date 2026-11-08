@@ -67,3 +67,9 @@ power:
   ghi_oct: {value: 6.20, unit: kWh/m2/day, source: published, ref: "NASA POWER, as ghi_jan"}
   ghi_nov: {value: 5.82, unit: kWh/m2/day, source: published, ref: "NASA POWER, as ghi_jan"}
   ghi_dec: {value: 5.95, unit: kWh/m2/day, source: published, ref: "NASA POWER, as ghi_jan"}
+node:
+  health_every_s: {value: 900, unit: s, source: estimate, ref: "spec §9.3: health report every 15 min, configurable"}
+environment:
+  ambient_min_c: {value: 14, unit: °C, source: estimate, ref: "Arusha night-time low, typical"}
+  ambient_max_c: {value: 27, unit: °C, source: estimate, ref: "Arusha afternoon high, typical (peak 15:00)"}
+  sun_gain_c: {value: 20, unit: °C, source: estimate, ref: "extra heat in a sealed relay enclosure in full sun (spec §11.5); measure in H1"}

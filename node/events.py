@@ -50,6 +50,15 @@ class PowerLow(EventBase):
 
 
 @dataclass(frozen=True, kw_only=True)
+class HealthTick(EventBase):
+    """Time to write a health report (spec §9.3); the driver reads the hardware sensors."""
+
+    battery_pct: float | None
+    temp_c: float | None
+    version: str
+
+
+@dataclass(frozen=True, kw_only=True)
 class Inject(EventBase):
     """All shards of one new bundle, handed over by the attached endpoint (site nodes only)."""
 
@@ -83,6 +92,7 @@ Event = (
     | FrameReceived
     | Timer
     | PowerLow
+    | HealthTick
     | Inject
     | EndpointAck
     | Revoke

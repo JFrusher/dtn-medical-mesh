@@ -8,7 +8,7 @@ from functools import partial
 from itertools import combinations
 from pathlib import Path
 
-from node import crypto
+from node import VERSION, crypto
 from node.bundle import Receipt, decode_receipt
 from node.core import T_LEDGER, NodeConfig, NodeCore
 from node.events import (
@@ -22,6 +22,7 @@ from node.events import (
     Emit,
     Event,
     FrameReceived,
+    HealthTick,
     PowerLow,
     SendFrame,
     SetTimer,
@@ -32,6 +33,7 @@ from node.hw.radio import RadioKind
 from node.hw.rtc import RtcError
 from node.pki import Identity, Role
 from node.storage import STORAGE_KEY_SLOT, Storage
+from simulation.assumptions import group
 from simulation.compute import cost_s, flash_bytes, profiles
 from simulation.mobility import Mobility
 from simulation.radio_model import (
@@ -52,7 +54,13 @@ from simulation.radio_model import (
 )
 from simulation.scheduler import Scheduler
 from simulation.terrain import Terrain
-from simulation.virtual_hw import Battery, SeededEntropy, SoftwareSecureElement, VirtualRtc
+from simulation.virtual_hw import (
+    Battery,
+    SeededEntropy,
+    SoftwareSecureElement,
+    VirtualRtc,
+    enclosure_c,
+)
 
 POWER_TICK_S = 60.0
 POWER_ON_PCT = 10.0
@@ -82,6 +90,7 @@ class SimNode:
     attacks: frozenset[str] = frozenset()
     external_power: bool = True
     busy_until: float = 0.0  # virtual time its current work finishes (spec §12.2 compute)
+    version: str = VERSION  # software running (the active A/B slot)
 
     def boot(self, now: float) -> None:
         """Start the node from what is on disk (also used after a power cut)."""
@@ -178,6 +187,11 @@ class World:
         for node in self.nodes.values():
             node.boot(self.scheduler.now)
         self.scheduler.after(0, self._tick)
+        every = group("node")["health_every_s"]
+        for i, node_id in enumerate(sorted(self.nodes)):  # staggered so reports don't coincide
+            self.scheduler.after(
+                every * (i + 1) / (len(self.nodes) + 1), partial(self._health, node_id)
+            )
         if any(n.battery for n in self.nodes.values()):
             self.scheduler.after(0, self._power_tick)
 
@@ -200,6 +214,16 @@ class World:
             elif not node.up and b.pct >= POWER_ON_PCT:
                 self.power_on(node)
         self.scheduler.after(dt, self._power_tick)
+
+    def _health(self, node_id: str) -> None:
+        node = self.nodes[node_id]
+        if node.up:
+            battery = round(node.battery.pct, 1) if node.battery else None
+            temp = round(enclosure_c(self.scheduler.now, node.config.role is Role.RELAY), 1)
+            self.dispatch(
+                node, partial(HealthTick, battery_pct=battery, temp_c=temp, version=node.version)
+            )
+        self.scheduler.after(group("node")["health_every_s"], partial(self._health, node_id))
 
     def position(self, node_id: str) -> tuple[float, float]:
         return self.nodes[node_id].mobility.position(self.scheduler.now)
