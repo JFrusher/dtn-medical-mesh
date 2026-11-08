@@ -1,0 +1,18 @@
+# Every physical and compute parameter the emulator uses (spec §12.2).
+# source: published (a datasheet, standard or paper: see ref), estimate (our guess, to be
+# replaced), or measured (an H1 bench measurement). Scenarios may override radio values; the
+# run report lists every value used and marks overrides.
+radio:
+  wifi_range_m: {value: 100, unit: m, source: estimate, ref: "Pi Zero 2 W on-board antenna, outdoor, between vehicles and poles"}
+  wifi_setup_s: {value: 2.0, unit: s, source: estimate, ref: "spec §8.2 target: BLE discovery to data flowing"}
+  wifi_bytes_per_s: {value: 1500000, unit: B/s, source: estimate, ref: "per direction, Pi Zero 2 W"}
+  lora_range_m: {value: 2000, unit: m, source: estimate, ref: "SX1262 SF9, urban"}
+  lora_sf: {value: 9, unit: "", source: estimate, ref: "spreading factor chosen for range vs airtime"}
+  lora_bw_hz: {value: 125000, unit: Hz, source: published, ref: "LoRaWAN default bandwidth"}
+  lora_cr: {value: 1, unit: "", source: published, ref: "coding rate 4/5"}
+  lora_duty_cycle: {value: 0.01, unit: "", source: published, ref: "ETSI EN 300 220 g1 sub-band 1 %; set per region"}
+  p_good_to_bad: {value: 0.0, unit: per frame, source: estimate, ref: "Gilbert-Elliott burst loss, off unless a scenario sets it"}
+  p_bad_to_good: {value: 0.3, unit: per frame, source: estimate, ref: "Gilbert-Elliott"}
+  loss_in_good: {value: 0.0, unit: per frame, source: estimate, ref: "Gilbert-Elliott"}
+  loss_in_bad: {value: 0.5, unit: per frame, source: estimate, ref: "Gilbert-Elliott"}
+  bit_flip_per_frame: {value: 0.0, unit: per frame, source: estimate, ref: "residual corruption past the link CRC, off unless a scenario sets it"}

@@ -1,7 +1,7 @@
 """Scenario files (YAML) -> typed, validated scenario. Unknown keys are errors."""
 
 from collections.abc import Callable
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
@@ -65,6 +65,7 @@ class Scenario:
     messages: tuple[MessageSpec, ...]
     faults: tuple[FaultSpec, ...] = ()
     geo: LatLon | None = None  # origin; when set, the file's coordinates are [lat, lon]
+    overrides: dict[str, float] = field(default_factory=dict)  # "group.name" -> value
 
 
 def load_scenario(name_or_path: str) -> Scenario:
@@ -109,7 +110,7 @@ def _parse(raw: dict[str, Any]) -> Scenario:
         name=raw["name"],
         duration_s=float(raw["duration_s"]),
         tick_s=float(raw.get("tick_s", 1.0)),
-        radio=RadioParams(**raw.get("radio", {})),
+        radio=RadioParams.defaults(**raw.get("radio", {})),
         geo=origin,
         nodes=nodes,
         endpoints=endpoints,
@@ -121,6 +122,7 @@ def _parse(raw: dict[str, Any]) -> Scenario:
             )
         ),
         faults=tuple(FaultSpec.parse(f, node_ids) for f in raw.get("faults") or []),
+        overrides={f"radio.{k}": v for k, v in raw.get("radio", {}).items()},
     )
 
 

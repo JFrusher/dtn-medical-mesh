@@ -101,7 +101,7 @@ class World:
         self.scheduler = scheduler
         self.data_dir = data_dir
         data_dir.mkdir(parents=True, exist_ok=True)
-        self.radio = radio or RadioParams()
+        self.radio = radio or RadioParams.defaults()
         self.tick_s = tick_s
         self.nodes: dict[str, SimNode] = {}
         self.contacts: set[frozenset[str]] = set()  # links that are up

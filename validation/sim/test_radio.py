@@ -17,7 +17,7 @@ from simulation.world import World
 def drive_by(tmp_path: Path, speed: float) -> World:
     """A mule drives straight past a relay; Wi-Fi range 100 m, so the window is ~200 m / speed."""
     s = Scheduler(seed=1)
-    w = World(s, tmp_path, RadioParams(wifi_bytes_per_s=100_000), tick_s=0.5)
+    w = World(s, tmp_path, RadioParams.defaults(wifi_bytes_per_s=100_000), tick_s=0.5)
     w.add_node(NodeConfig("RELAY", Role.RELAY, None), Static((0, 0)))
     w.add_node(NodeConfig("HUB", Role.HUB, "SA_H"), Static((50_000, 0)))
     w.add_node(NodeConfig("MULE", Role.MULE, None), Route(((-1000, 0), (1000, 0)), speed=speed))
@@ -59,7 +59,7 @@ def test_frame_lost_when_contact_drops_does_not_leak_into_next_contact(tmp_path:
 
 @pytest.mark.req("REQ-SIM-03")
 def test_gilbert_elliott_losses_come_in_bursts_and_bits_flip() -> None:
-    params = RadioParams(
+    params = RadioParams.defaults(
         p_good_to_bad=0.05, p_bad_to_good=0.2, loss_in_bad=0.9, bit_flip_per_frame=0.1
     )
     rng, link = random.Random(7), Link(up=True)

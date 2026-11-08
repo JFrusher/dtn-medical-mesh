@@ -19,6 +19,7 @@ import cbor2
 from endpoint.state import Status
 from node.bundle import decode_receipt, decode_shard
 from node.core import T_LEDGER, T_SHARDS
+from simulation.assumptions import ASSUMPTIONS
 from simulation.virtual_hw import SIM_EPOCH
 
 if TYPE_CHECKING:
@@ -39,6 +40,8 @@ class Report:
     lost_frames: int
     lora_over_budget: int
     drops: dict[str, int] = field(default_factory=dict)
+    # "group.name" -> value, unit, source ("scenario" when the scenario overrode it)
+    assumptions: dict[str, dict[str, object]] = field(default_factory=dict)
 
     def to_json(self) -> str:
         return json.dumps(self.__dict__, indent=2, sort_keys=True)
@@ -73,6 +76,15 @@ class Report:
             "",
             "Peak storage per node (bytes): "
             + ", ".join(f"{k} {v:,}" for k, v in sorted(self.peak_storage_bytes.items())),
+            "",
+            "## Assumptions used",
+            "",
+            "| Parameter | Value | Unit | Source |",
+            "|---|---|---|---|",
+            *[
+                f"| {k} | {a['value']} | {a['unit']} | {a['source']} |"
+                for k, a in sorted(self.assumptions.items())
+            ],
         ]
         return "\n".join(lines) + "\n"
 
@@ -131,7 +143,20 @@ def evaluate(result: "RunResult", seed: int) -> Report:
         lost_frames=world.lost_frames,
         lora_over_budget=world.lora_over_budget,
         drops=dict(drops),
+        assumptions=_assumptions(result.scenario.overrides),
     )
+
+
+def _assumptions(overrides: dict[str, float]) -> dict[str, dict[str, object]]:
+    out: dict[str, dict[str, object]] = {}
+    for key, a in ASSUMPTIONS.items():
+        scenario = key in overrides
+        out[key] = {
+            "value": overrides[key] if scenario else a.value,
+            "unit": a.unit,
+            "source": "scenario" if scenario else a.source,
+        }
+    return out
 
 
 def _recoverable(result: "RunResult", endpoint: str, bid: bytes) -> bool:

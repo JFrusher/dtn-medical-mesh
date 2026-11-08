@@ -1,30 +1,35 @@
-"""Radio links between virtual nodes (spec §12.2).
-
-Defaults are assumptions for a Pi Zero 2 W until the H1 bench measures them.
-"""
+"""Radio links between virtual nodes (spec §12.2)."""
 
 import math
 import random
 from collections import deque
 from dataclasses import dataclass, field
 
+from simulation.assumptions import group
+
 
 @dataclass(frozen=True)
 class RadioParams:
-    wifi_range_m: float = 100.0
-    wifi_setup_s: float = 2.0  # BLE discovery to data flowing (spec target, §8.2)
-    wifi_bytes_per_s: float = 1_500_000.0  # per direction
-    lora_range_m: float = 2000.0
-    lora_sf: int = 9
-    lora_bw_hz: float = 125_000.0
-    lora_cr: int = 1  # coding rate 4/(4+cr)
-    lora_duty_cycle: float = 0.01  # EU868 sub-band limit; set per deployment region
-    # Gilbert-Elliott burst loss per link (per frame): off by default.
-    p_good_to_bad: float = 0.0
-    p_bad_to_good: float = 0.3
-    loss_in_good: float = 0.0
-    loss_in_bad: float = 0.5
-    bit_flip_per_frame: float = 0.0  # chance a delivered frame has one bit flipped
+    """Values come from simulation/assumptions.yaml; build with `RadioParams.defaults()`."""
+
+    wifi_range_m: float
+    wifi_setup_s: float
+    wifi_bytes_per_s: float
+    lora_range_m: float
+    lora_sf: int
+    lora_bw_hz: float
+    lora_cr: int  # coding rate 4/(4+cr)
+    lora_duty_cycle: float
+    # Gilbert-Elliott burst loss per link (per frame)
+    p_good_to_bad: float
+    p_bad_to_good: float
+    loss_in_good: float
+    loss_in_bad: float
+    bit_flip_per_frame: float  # chance a delivered frame has one bit flipped
+
+    @classmethod
+    def defaults(cls, **overrides: float) -> "RadioParams":
+        return cls(**{**group("radio"), **overrides})  # type: ignore[arg-type]
 
 
 @dataclass
