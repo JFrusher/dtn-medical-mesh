@@ -43,3 +43,8 @@ compute:
   db_commit_s_pi5: {value: 0.001, unit: s, source: estimate, ref: "same on NVMe SSD"}
   db_bytes_per_s_zero2w: {value: 8000000, unit: B/s, source: estimate, ref: "microSD write plus SQLCipher AES-256 on A53"}
   db_bytes_per_s_pi5: {value: 200000000, unit: B/s, source: estimate, ref: "NVMe write plus AES on A76"}
+storage:
+  page_bytes: {value: 4096, unit: B, source: published, ref: "SQLite default page size: each commit writes at least one page"}
+  wal_factor: {value: 2, unit: x, source: published, ref: "SQLite WAL: pages are written to the WAL, then again at checkpoint"}
+  endurance_tbw_sd: {value: 30, unit: TB written, source: estimate, ref: "industrial 32 GB microSD (pSLC/3D TLC); check the chosen card's datasheet"}
+  endurance_tbw_nvme: {value: 150, unit: TB written, source: estimate, ref: "typical rating for a 256 GB NVMe SSD"}

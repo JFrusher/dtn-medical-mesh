@@ -20,10 +20,12 @@ from endpoint.state import Status
 from node.bundle import decode_receipt, decode_shard
 from node.core import T_LEDGER, T_SHARDS
 from simulation.assumptions import ASSUMPTIONS
+from simulation.compute import endurance_bytes
 from simulation.virtual_hw import SIM_EPOCH
 
 if TYPE_CHECKING:
     from simulation.runner import RunResult
+    from simulation.world import World
 
 
 @dataclass
@@ -41,6 +43,8 @@ class Report:
     lora_over_budget: int
     drops: dict[str, int] = field(default_factory=dict)
     busy_pct: dict[str, float] = field(default_factory=dict)  # CPU and storage time, % of run
+    # node -> flash bytes/day, peak write rate (bytes/s over a minute), projected life (years)
+    flash: dict[str, dict[str, float]] = field(default_factory=dict)
     # "group.name" -> value, unit, source ("scenario" when the scenario overrode it)
     assumptions: dict[str, dict[str, object]] = field(default_factory=dict)
 
@@ -80,6 +84,17 @@ class Report:
             "",
             "Busy (CPU and storage, % of run): "
             + ", ".join(f"{k} {v:.2f}" for k, v in sorted(self.busy_pct.items())),
+            "",
+            "Flash wear counts message storage only; operating-system and log writes are extra.",
+            "",
+            "| Node | Flash written per day (MB) | Peak write rate (kB/s) "
+            "| Projected card life (years) |",
+            "|---|---|---|---|",
+            *[
+                f"| {k} | {f['mb_per_day']:.1f} | {f['peak_kb_per_s']:.1f} "
+                f"| {f['life_years']:,.0f} |"
+                for k, f in sorted(self.flash.items())
+            ],
             "",
             "## Assumptions used",
             "",
@@ -148,8 +163,23 @@ def evaluate(result: "RunResult", seed: int) -> Report:
         lora_over_budget=world.lora_over_budget,
         drops=dict(drops),
         busy_pct={n: 100 * b / world.scheduler.now for n, b in world.busy_s.items()},
+        flash=_flash(world),
         assumptions=_assumptions(result.scenario.overrides),
     )
+
+
+def _flash(world: "World") -> dict[str, dict[str, float]]:
+    days = world.scheduler.now / 86400
+    out = {}
+    for node_id, written in world.flash_written.items():
+        per_day = written / days
+        role = world.nodes[node_id].config.role
+        out[node_id] = {
+            "mb_per_day": per_day / 1e6,
+            "peak_kb_per_s": max(world.flash_per_min[node_id].values()) / 60 / 1e3,
+            "life_years": endurance_bytes(role) / per_day / 365,
+        }
+    return out
 
 
 def _assumptions(overrides: dict[str, float]) -> dict[str, dict[str, object]]:

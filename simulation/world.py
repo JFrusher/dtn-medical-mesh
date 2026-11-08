@@ -32,7 +32,7 @@ from node.hw.radio import RadioKind
 from node.hw.rtc import RtcError
 from node.pki import Identity, Role
 from node.storage import STORAGE_KEY_SLOT, Storage
-from simulation.compute import cost_s, profiles
+from simulation.compute import cost_s, flash_bytes, profiles
 from simulation.mobility import Mobility
 from simulation.radio_model import (
     LORA_SENSITIVITY_DBM,
@@ -132,6 +132,8 @@ class World:
         self._duty: dict[str, DutyCycle] = defaultdict(DutyCycle)
         self._profiles = profiles()
         self.busy_s: dict[str, float] = defaultdict(float)  # CPU and storage time per node
+        self.flash_written: dict[str, int] = defaultdict(int)  # bytes to flash, for wear
+        self.flash_per_min: dict[str, dict[int, int]] = defaultdict(lambda: defaultdict(int))
         self.log: LogFn = log or (lambda t, msg: None)
 
     def add_node(
@@ -224,6 +226,10 @@ class World:
         )
         node.busy_until = now + cost
         self.busy_s[node.id] += cost
+        written = flash_bytes(actions)
+        if written:
+            self.flash_written[node.id] += written
+            self.flash_per_min[node.id][int(now // 60)] += written
         boot = node.boots
 
         def take_effect() -> None:

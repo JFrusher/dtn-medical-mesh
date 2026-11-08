@@ -5,7 +5,7 @@ import pytest
 from node.core import NodeConfig
 from node.events import Action, Delete, PowerLow, Store
 from node.pki import Role
-from simulation.compute import SE_SIGN_S, Profile, cost_s, profiles
+from simulation.compute import SE_SIGN_S, Profile, cost_s, flash_bytes, profiles
 from simulation.metrics import evaluate
 from simulation.mobility import Static
 from simulation.provision import provision
@@ -63,3 +63,17 @@ def test_report_shows_how_busy_nodes_were(tmp_path: Path) -> None:
     report = evaluate(run(load_scenario("skeleton"), 1, tmp_path), 1)
     assert report.busy_pct and all(0 <= v < 100 for v in report.busy_pct.values())
     assert max(report.busy_pct.values()) > 0
+
+
+@pytest.mark.req("REQ-SIM-03")
+def test_flash_writes_round_up_to_pages_and_double_in_wal() -> None:
+    small = flash_bytes([Store(table="t", key=b"k" * 10, value=b"v" * 100)])
+    big = flash_bytes([Store(table="t", key=b"k", value=b"v" * 5000), Delete(table="t", key=b"k")])
+    assert small == 4096 * 2 and big == (2 * 4096 + 4096) * 2
+
+
+def test_report_projects_card_life(tmp_path: Path) -> None:
+    report = evaluate(run(load_scenario("skeleton"), 1, tmp_path), 1)
+    mule = report.flash["AMBULANCE_01"]
+    assert mule["mb_per_day"] > 0 and mule["peak_kb_per_s"] > 0 and mule["life_years"] > 1
+    assert "Projected card life" in report.to_markdown()

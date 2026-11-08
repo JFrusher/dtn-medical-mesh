@@ -39,6 +39,24 @@ def profiles() -> dict[Role, Profile]:
 SE_SIGN_S = group("compute")["se_sign_s"]
 
 
+def flash_bytes(actions: Sequence[Action]) -> int:
+    """Bytes that reach flash: whole pages, written twice in WAL mode."""
+    s = group("storage")
+    page, factor = int(s["page_bytes"]), int(s["wal_factor"])
+    total = 0
+    for a in actions:
+        if isinstance(a, Store | Delete):
+            size = len(a.key) + (len(a.value) if isinstance(a, Store) else 0)
+            total += -(-size // page) * page * factor
+    return total
+
+
+def endurance_bytes(role: Role) -> float:
+    s = group("storage")
+    tbw = s["endurance_tbw_nvme"] if role in (Role.SITE, Role.HUB) else s["endurance_tbw_sd"]
+    return tbw * 1e12
+
+
 def cost_s(
     p: Profile, signs: int, verifies: int, received_bytes: int, actions: Sequence[Action]
 ) -> float:
