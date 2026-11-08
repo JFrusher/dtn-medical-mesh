@@ -2,11 +2,11 @@
   --paper: #eef2f1;      /* cool ward-green: the ground the map sits on */
   --surface: #ffffff;
   --ink: #1f2d2b;
-  --muted: #6b7a77;
+  --muted: #616f6c;
   --rule: #d5dedc;
   --accent: #0f6e74;     /* the one colour that means "the network" */
   --road: #c3d0cd;
-  --transit: #b7791f;
+  --transit: #946219;
   --alarm: #b4232c;
   --alarm-wash: #fbeceb;
   --on-accent: #ffffff;
@@ -161,7 +161,7 @@ button, select, textarea, input { font: inherit; color: inherit; }
 .form legend { font-size: 13px; color: var(--muted); padding: 0 4px; }
 .form .vitals label { flex-direction: row; }
 .form .send { margin-left: 0; align-self: flex-start; min-height: 44px; }
-.form h3, .patient-head { font-size: 14px; margin: 6px 0 0; }
+.form h2, .patient-head { font-size: 14px; margin: 6px 0 0; }
 .patient-head { color: var(--muted); font-weight: 600; border-bottom: 1px solid var(--rule); padding-bottom: 4px; }
 .msg .text { white-space: pre-line; }
 .msg.nested { margin-left: 24px; }
@@ -173,6 +173,10 @@ button, select, textarea, input { font: inherit; color: inherit; }
 .chip.declined { color: var(--alarm); background: var(--alarm-wash); }
 .chip.needs-info, .chip.sent { color: var(--transit); }
 .msg .body .chip { display: block; width: max-content; }
+/* 44 px touch targets (spec §10.1) without making text links look like buttons */
+.who .signout, .who .close, .msg .meta button { min-height: 44px; min-width: 44px; display: inline-flex;
+  align-items: center; justify-content: center; vertical-align: middle; }
+.who { padding-top: 4px; padding-bottom: 4px; }
 .answers { display: flex; gap: 8px; margin-top: 6px; flex-wrap: wrap; }
 .answer { border: 1px solid var(--rule); background: var(--surface); border-radius: 6px; padding: 6px 12px; min-height: 44px; cursor: pointer; font-weight: 600; }
 .answer.accepted { color: var(--accent); } .answer.declined { color: var(--alarm); } .answer.needs-info { color: var(--transit); }

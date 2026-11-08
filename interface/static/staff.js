@@ -133,7 +133,7 @@ export class Staff {
       groups.get(key).push(m);
     }
     for (const [key, msgs] of [...groups].sort(([a], [b]) => (a === "") - (b === ""))) {
-      const head = document.createElement("h3");
+      const head = document.createElement("h2");
       head.className = "patient-head";
       head.textContent = key ? patientLine(msgs[0].patient) : t("cases.no_patient");
       out.append(head);
@@ -191,7 +191,7 @@ export class Staff {
     out.append(this.patients.length ? list : empty(t("patients.empty")));
     if (this.me.role === "clinic") {
       const f = form(`
-        <h3>${esc(t("patients.add"))}</h3>
+        <h2>${esc(t("patients.add"))}</h2>
         <label>${esc(t("patient.local_id"))}<input name="local_id" required></label>
         <label>${esc(t("patient.name"))}<input name="name" required></label>
         <label>${esc(t("patient.age"))}<input name="age" type="number" min="0" max="130" required></label>

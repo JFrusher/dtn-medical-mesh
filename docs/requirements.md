@@ -83,3 +83,4 @@ Format: `REQ-<AREA>-<NN>`. Spec references are to `PROJECT_SPEC.md`.
 | REQ-APP-04 | A referral is a structured FHIR `ServiceRequest`; the hospital's Accept, Decline or Need information answer is itself a tracked message linked to it. | §10.3, §10.4 |
 | REQ-APP-05 | The hospital's triage inbox lists arrivals by urgency, then oldest first, with how long each took to arrive. | §10.4 |
 | REQ-APP-06 | Results travel back to the clinic as FHIR `DiagnosticReport` messages linked to the patient. | §10.5 |
+| REQ-APP-07 | The staff app meets WCAG 2.1 AA in an automated scan in light and dark mode, works by keyboard alone, and its controls are at least 44 px tall. | §10.1 |

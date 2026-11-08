@@ -145,5 +145,7 @@
   "msg.result": "Result: {test}, {conclusion}",
   "msg.attachment": "Attachment: {title} ({kb} kB)",
   "time.minutes": "{m} min",
-  "time.hours": "{h} h {m} min"
+  "time.hours": "{h} h {m} min",
+  "drawer.left": "Laptop on the left",
+  "drawer.right": "Laptop on the right"
 }

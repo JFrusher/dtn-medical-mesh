@@ -146,5 +146,7 @@
   "msg.result": "Matokeo: {test}, {conclusion}",
   "msg.attachment": "Kiambatisho: {title} (kB {kb})",
   "time.minutes": "dak {m}",
-  "time.hours": "saa {h} dak {m}"
+  "time.hours": "saa {h} dak {m}",
+  "drawer.left": "Kompyuta ya kushoto",
+  "drawer.right": "Kompyuta ya kulia"
 }

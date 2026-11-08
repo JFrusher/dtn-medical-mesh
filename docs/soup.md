@@ -26,3 +26,4 @@ Shipped in `interface/static/` so the demo works with no internet. Rebuilt by `t
 | Arusha map extract | Protomaps build 2026-11-07 | ODbL, © OpenStreetMap contributors | Streets, places, water |
 | Arusha terrain grids (`simulation/geo/arusha/`) | Mapzen terrarium tiles z12; OSM buildings from the extract above | Elevation: public domain / open (SRTM and others, AWS Open Data); buildings: ODbL | Emulator radio terrain and clutter only; never used by node code |
 | Noto Sans glyphs | basemaps-assets | SIL OFL 1.1 | Map labels |
+| axe-core (`validation/interface/vendor/`) | v4.10.2 | MPL-2.0 | Accessibility scan in tests only; never served to users |
