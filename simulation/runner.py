@@ -8,6 +8,7 @@ from functools import partial
 from pathlib import Path
 
 from simulation import faults
+from simulation.compute import board
 from simulation.endpoints import VirtualEndpoint
 from simulation.hostile import HostileCore
 from simulation.metrics import evaluate
@@ -52,7 +53,9 @@ def build(scenario: Scenario, seed: int, data_dir: Path, echo: bool = False) -> 
         )
     world = World(scheduler, data_dir, scenario.radio, scenario.tick_s, log, terrain)
     for spec in scenario.nodes:
-        battery = Battery(**spec.battery) if spec.battery else None
+        battery = (
+            Battery.for_board(board(spec.config.role), **spec.battery) if spec.battery else None
+        )
         mobility = spec.mobility
         if isinstance(mobility, Route | Walk):  # noisy mobility draws from the run's seed
             mobility = replace(mobility, seed=f"{seed}:{spec.config.node_id}")

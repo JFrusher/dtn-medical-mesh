@@ -48,3 +48,22 @@ storage:
   wal_factor: {value: 2, unit: x, source: published, ref: "SQLite WAL: pages are written to the WAL, then again at checkpoint"}
   endurance_tbw_sd: {value: 30, unit: TB written, source: estimate, ref: "industrial 32 GB microSD (pSLC/3D TLC); check the chosen card's datasheet"}
   endurance_tbw_nvme: {value: 150, unit: TB written, source: estimate, ref: "typical rating for a 256 GB NVMe SSD"}
+power:
+  idle_w_zero2w: {value: 0.7, unit: W, source: estimate, ref: "spec §11.2: Pi Zero 2 W node idle with radios listening"}
+  active_w_zero2w: {value: 2.0, unit: W, source: estimate, ref: "spec §11.2: Pi Zero 2 W node transferring over Wi-Fi"}
+  idle_w_pi5: {value: 3.0, unit: W, source: estimate, ref: "spec §11.2: Pi 5 hub idle"}
+  active_w_pi5: {value: 7.0, unit: W, source: estimate, ref: "spec §11.2: Pi 5 hub transferring"}
+  vehicle_charge_w: {value: 10, unit: W, source: estimate, ref: "vehicle supply via automotive DC-DC while the engine runs"}
+  solar_derate: {value: 0.75, unit: of rated, source: estimate, ref: "charge controller, heat, dust and battery round-trip losses"}
+  ghi_jan: {value: 6.31, unit: kWh/m2/day, source: published, ref: "NASA POWER climatology ALLSKY_SFC_SW_DWN at -3.37, 36.69 (Arusha), fetched 2026-11-08"}
+  ghi_feb: {value: 6.51, unit: kWh/m2/day, source: published, ref: "NASA POWER, as ghi_jan"}
+  ghi_mar: {value: 6.15, unit: kWh/m2/day, source: published, ref: "NASA POWER, as ghi_jan"}
+  ghi_apr: {value: 5.25, unit: kWh/m2/day, source: published, ref: "NASA POWER, as ghi_jan"}
+  ghi_may: {value: 4.62, unit: kWh/m2/day, source: published, ref: "NASA POWER, as ghi_jan"}
+  ghi_jun: {value: 4.43, unit: kWh/m2/day, source: published, ref: "NASA POWER, as ghi_jan"}
+  ghi_jul: {value: 4.66, unit: kWh/m2/day, source: published, ref: "NASA POWER, as ghi_jan"}
+  ghi_aug: {value: 5.18, unit: kWh/m2/day, source: published, ref: "NASA POWER, as ghi_jan"}
+  ghi_sep: {value: 6.07, unit: kWh/m2/day, source: published, ref: "NASA POWER, as ghi_jan"}
+  ghi_oct: {value: 6.20, unit: kWh/m2/day, source: published, ref: "NASA POWER, as ghi_jan"}
+  ghi_nov: {value: 5.82, unit: kWh/m2/day, source: published, ref: "NASA POWER, as ghi_jan"}
+  ghi_dec: {value: 5.95, unit: kWh/m2/day, source: published, ref: "NASA POWER, as ghi_jan"}

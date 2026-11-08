@@ -21,10 +21,15 @@ class Profile:
     db_bytes_per_s: float
 
 
+def board(role: Role) -> str:
+    """Spec §11.1: relays and mules are Pi Zero 2 W, sites and hubs Pi 5."""
+    return "zero2w" if role in (Role.RELAY, Role.MULE) else "pi5"
+
+
 def profiles() -> dict[Role, Profile]:
     c = group("compute")
 
-    def board(name: str) -> Profile:
+    def profile(name: str) -> Profile:
         return Profile(
             c[f"verify_s_{name}"],
             c[f"sha256_bytes_per_s_{name}"],
@@ -32,8 +37,7 @@ def profiles() -> dict[Role, Profile]:
             c[f"db_bytes_per_s_{name}"],
         )
 
-    zero, pi5 = board("zero2w"), board("pi5")
-    return {Role.RELAY: zero, Role.MULE: zero, Role.SITE: pi5, Role.HUB: pi5}
+    return {role: profile(board(role)) for role in Role}
 
 
 SE_SIGN_S = group("compute")["se_sign_s"]

@@ -45,6 +45,8 @@ class Report:
     busy_pct: dict[str, float] = field(default_factory=dict)  # CPU and storage time, % of run
     # node -> flash bytes/day, peak write rate (bytes/s over a minute), projected life (years)
     flash: dict[str, dict[str, float]] = field(default_factory=dict)
+    # battery node -> autonomy days (full, idle, no charge), lowest charge seen (%)
+    power: dict[str, dict[str, float]] = field(default_factory=dict)
     # "group.name" -> value, unit, source ("scenario" when the scenario overrode it)
     assumptions: dict[str, dict[str, object]] = field(default_factory=dict)
 
@@ -84,6 +86,13 @@ class Report:
             "",
             "Busy (CPU and storage, % of run): "
             + ", ".join(f"{k} {v:.2f}" for k, v in sorted(self.busy_pct.items())),
+            "",
+            "| Battery node | Autonomy (days, idle, no charge) | Lowest charge (%) |",
+            "|---|---|---|",
+            *[
+                f"| {k} | {p['autonomy_days']:.1f} | {p['min_pct']:.0f} |"
+                for k, p in sorted(self.power.items())
+            ],
             "",
             "Flash wear counts message storage only; operating-system and log writes are extra.",
             "",
@@ -164,6 +173,11 @@ def evaluate(result: "RunResult", seed: int) -> Report:
         drops=dict(drops),
         busy_pct={n: 100 * b / world.scheduler.now for n, b in world.busy_s.items()},
         flash=_flash(world),
+        power={
+            n: {"autonomy_days": node.battery.autonomy_days, "min_pct": world.min_battery_pct[n]}
+            for n, node in world.nodes.items()
+            if node.battery
+        },
         assumptions=_assumptions(result.scenario.overrides),
     )
 

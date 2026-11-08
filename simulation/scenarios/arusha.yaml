@@ -2677,11 +2677,11 @@ nodes:
 - id: LIGHT_MOSHI_ROAD
   role: relay
   at: [-3.375985, 36.745585]
-  power: {kind: solar, capacity_wh: 30, load_w: 1, solar_peak_w: 6}
+  power: {kind: solar, capacity_wh: 77, panel_w: 10}
 - id: LIGHT_NAIROBI_ROAD
   role: relay
   at: [-3.343654, 36.645032]
-  power: {kind: solar, capacity_wh: 30, load_w: 1, solar_peak_w: 6}
+  power: {kind: solar, capacity_wh: 77, panel_w: 10}
 endpoints:
 - {name: hospital, node: HOSPITAL}
 - {name: murieti, node: MURIETI}

@@ -214,7 +214,11 @@ def scenario() -> None:
                 "id": rid,
                 "role": "relay",
                 "at": list(at),
-                "power": {"kind": "solar", "capacity_wh": 30, "load_w": 1, "solar_peak_w": 6},
+                "power": {
+                    "kind": "solar",
+                    "capacity_wh": 77,
+                    "panel_w": 10,
+                },  # spec §11.1: 6 Ah 12.8 V
             }
         )
     clinics = [n.lower().replace("_", "-") for n, (role, _, _) in SITES.items() if role == "site"]

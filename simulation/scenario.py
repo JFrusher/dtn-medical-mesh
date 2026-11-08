@@ -142,8 +142,8 @@ def _node(raw: dict[str, Any], point: Callable[[list[float]], tuple[float, float
     registered = bool(hostile.get("registered", True))
     battery = raw.get("power")
     if battery is not None:
-        _keys(battery, f"power of {raw['id']}", {"kind", "capacity_wh", "load_w", "solar_peak_w"})
-        Battery(**battery)  # validate now
+        _keys(battery, f"power of {raw['id']}", {"kind", "capacity_wh", "panel_w"})
+        Battery(**battery, idle_w=1, active_w=1)  # validate now; draw comes from the board
     config = NodeConfig(raw["id"], Role(raw["role"]), raw.get("sa"))
     if "capacity_mb" in raw:
         config = replace(config, capacity_bytes=int(float(raw["capacity_mb"]) * 1024 * 1024))

@@ -3,6 +3,8 @@
 import math
 import random
 from dataclasses import dataclass
+from datetime import UTC, datetime
+from typing import Any
 
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import ec
@@ -11,6 +13,7 @@ from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
 from node.hw.power import PowerState
 from node.hw.rtc import RtcError
+from simulation.assumptions import group
 from simulation.scheduler import Scheduler
 
 _P256_ORDER = 0xFFFFFFFF00000000FFFFFFFFFFFFFFFFBCE6FAADA7179E84F3B9CAC2FC632551
@@ -74,19 +77,23 @@ class MainsPower:
         return PowerState(external_power=True, battery_pct=None)
 
 
+MONTHS = ("jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec")
+
+
 @dataclass
 class Battery:
     """Battery-backed supply for solar or vehicle nodes (spec §11.2, §12.2).
 
-    solar: charged by a day curve (peak at noon, nothing 18:00-06:00).
-    vehicle: charged while the engine runs (the vehicle is moving), otherwise the UPS drains.
+    Draw is the board's idle power, or its transferring power while it has a contact.
+    solar: a panel of panel_w rated watts on a day curve (06:00-18:00, peak at noon) whose daily
+    energy follows the month's irradiance. vehicle: charged while the engine runs (moving).
     """
 
     kind: str  # "solar" or "vehicle"
     capacity_wh: float
-    load_w: float
-    solar_peak_w: float = 0.0
-    charge_w: float = 10.0  # vehicle alternator via the DC-DC converter
+    idle_w: float
+    active_w: float
+    panel_w: float = 0.0
     level_wh: float = -1.0  # starts full
 
     def __post_init__(self) -> None:
@@ -95,22 +102,36 @@ class Battery:
         if self.level_wh < 0:
             self.level_wh = self.capacity_wh
 
+    @classmethod
+    def for_board(cls, board: str, **spec: Any) -> "Battery":
+        """spec from the scenario's power block; draw from the board's assumptions."""
+        p = group("power")
+        return cls(**spec, idle_w=p[f"idle_w_{board}"], active_w=p[f"active_w_{board}"])
+
     def external(self, t: float, moving: bool) -> bool:
         return moving if self.kind == "vehicle" else self.solar_w(t) > 0
 
     def solar_w(self, t: float) -> float:
+        """Sine over daylight, scaled so a day yields panel_w x peak sun hours x derate."""
+        p = group("power")
+        month = datetime.fromtimestamp(SIM_EPOCH + t, UTC).month
+        daily_wh = self.panel_w * p[f"ghi_{MONTHS[month - 1]}"] * p["solar_derate"]
         hour = (t / 3600) % 24
-        return self.solar_peak_w * max(0.0, math.sin(math.pi * (hour - 6) / 12))
+        return daily_wh * math.pi / 24 * max(0.0, math.sin(math.pi * (hour - 6) / 12))
 
-    def step(self, t: float, dt: float, moving: bool) -> None:
+    def step(self, t: float, dt: float, moving: bool, active: bool) -> None:
         if self.kind == "vehicle":
-            supply = self.charge_w if moving else 0.0
+            supply = group("power")["vehicle_charge_w"] if moving else 0.0
         else:
             supply = self.solar_w(t)
-        self.level_wh = min(
-            self.capacity_wh, max(0.0, self.level_wh + (supply - self.load_w) * dt / 3600)
-        )
+        load = self.active_w if active else self.idle_w
+        self.level_wh = min(self.capacity_wh, max(0.0, self.level_wh + (supply - load) * dt / 3600))
 
     @property
     def pct(self) -> float:
         return 100 * self.level_wh / self.capacity_wh
+
+    @property
+    def autonomy_days(self) -> float:
+        """Days a full battery lasts at idle with no sun or engine."""
+        return self.capacity_wh / (self.idle_w * 24)

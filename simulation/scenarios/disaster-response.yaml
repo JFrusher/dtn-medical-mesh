@@ -18,11 +18,11 @@ nodes:
   - id: JEEP
     role: mule
     route: {waypoints: [[0, 0], [3500, 1500], [0, 4000], [500, -3800]], speed: 8, dwell_s: 600}
-    power: {kind: vehicle, capacity_wh: 10, load_w: 2}
+    power: {kind: vehicle, capacity_wh: 10}
   - id: RELAY_RIDGE
     role: relay
     at: [1700, 2700]
-    power: {kind: solar, capacity_wh: 8, load_w: 1, solar_peak_w: 3}
+    power: {kind: solar, capacity_wh: 8, panel_w: 3}
 endpoints:
   - {name: field-hospital, node: FIELD_HOSPITAL}
   - {name: post-north, node: POST_NORTH}

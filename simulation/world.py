@@ -116,6 +116,7 @@ class World:
         self.data_dir = data_dir
         data_dir.mkdir(parents=True, exist_ok=True)
         self.radio = radio or RadioParams.defaults()
+        self._wifi_reach = wifi_reach_m(self.radio)
         self.tick_s = tick_s
         self.nodes: dict[str, SimNode] = {}
         self.contacts: set[frozenset[str]] = set()  # links that are up
@@ -132,6 +133,7 @@ class World:
         self._duty: dict[str, DutyCycle] = defaultdict(DutyCycle)
         self._profiles = profiles()
         self.busy_s: dict[str, float] = defaultdict(float)  # CPU and storage time per node
+        self.min_battery_pct: dict[str, float] = defaultdict(lambda: 100.0)
         self.flash_written: dict[str, int] = defaultdict(int)  # bytes to flash, for wear
         self.flash_per_min: dict[str, dict[int, int]] = defaultdict(lambda: defaultdict(int))
         self.log: LogFn = log or (lambda t, msg: None)
@@ -191,7 +193,8 @@ class World:
             if node.up and node.external_power and not external:
                 self.dispatch(node, PowerLow)
             node.external_power = external
-            b.step(now, dt, moving)
+            b.step(now, dt, moving, active=any(node.id in p for p in self.contacts))
+            self.min_battery_pct[node.id] = min(self.min_battery_pct[node.id], b.pct)
             if node.up and b.level_wh <= 0:
                 self.power_off(node)
             elif not node.up and b.pct >= POWER_ON_PCT:
@@ -322,11 +325,10 @@ class World:
                 self.scheduler.after(airtime, partial(self.dispatch, self.nodes[node_id], heard))
         self.lora_log.append((self.scheduler.now, src))
 
-    def _update_rate(self, link: Link, a: str, b: str) -> None:
+    def _update_rate(self, link: Link, a: str, b: str, d: float) -> None:
         """Received power from path loss and this pass's shadowing sets the link's goodput."""
         r = self.radio
-        d = math.dist(self.position(a), self.position(b))
-        if d > wifi_reach_m(r):
+        if d > self._wifi_reach:
             link.shadow_db, link.rate = None, 0.0  # a fresh draw on the next approach
             return
         if link.shadow_db is None:
@@ -378,10 +380,12 @@ class World:
         self.contacts.discard(pair)
 
     def _tick(self) -> None:
-        for a, b in combinations(sorted(n for n, node in self.nodes.items() if node.up), 2):
+        up = sorted(n for n, node in self.nodes.items() if node.up)
+        pos = {n: self.position(n) for n in up}
+        for a, b in combinations(up, 2):
             pair = frozenset((a, b))
             link = self.links.setdefault(pair, Link())
-            self._update_rate(link, a, b)
+            self._update_rate(link, a, b, math.dist(pos[a], pos[b]))
             if link.rate:
                 if not link.up and pair not in self._connecting:
                     self._connecting.add(pair)
@@ -396,7 +400,7 @@ class World:
         pair = frozenset((a, b))
         self._connecting.discard(pair)
         link = self.links[pair]
-        self._update_rate(link, a, b)
+        self._update_rate(link, a, b, math.dist(self.position(a), self.position(b)))
         if not link.rate or not (self.nodes[a].up and self.nodes[b].up):
             return  # drove out of range, or lost power, before the link came up
         self.links[pair].up = True
