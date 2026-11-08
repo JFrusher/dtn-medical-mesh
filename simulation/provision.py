@@ -3,6 +3,7 @@
 from functools import partial
 
 from endpoint.directory import DirectoryEntry, directory_body
+from node import node_toml
 from node.events import PublishDirectory
 from node.pki import HUB_CERT_LIFETIME_S, ROOT, Identity, Role, encode_cert, encode_doc, issue
 from simulation.endpoints import VirtualEndpoint
@@ -32,6 +33,7 @@ def provision(
         )
         hub_certs[c.node_id] = cert
         hub.identity = Identity(cert, None, root.public_key(), hub.se.sign)
+        hub.node_toml = node_toml.write(c, root.sign, None)
     issuer, issuer_cert = hubs[0], hub_certs[hubs[0].config.node_id]
     for node in nodes:
         if node.config.role is Role.HUB:
@@ -45,11 +47,13 @@ def provision(
                 rogue.sign, fake.cert_id, c.node_id, c.role, c.sa, node.se.public_key(), now
             )
             node.identity = Identity(cert, fake, rogue.public_key(), node.se.sign)
+            node.node_toml = node_toml.write(c, rogue.sign, fake)
             continue
         cert = issue(
             issuer.se.sign, issuer_cert.cert_id, c.node_id, c.role, c.sa, node.se.public_key(), now
         )
         node.identity = Identity(cert, issuer_cert, root.public_key(), node.se.sign)
+        node.node_toml = node_toml.write(c, issuer.se.sign, issuer_cert)
     return root
 
 
@@ -61,6 +65,7 @@ def provision_one(node: SimNode, hub: SimNode) -> None:
         issuer.sign, issuer.cert.cert_id, c.node_id, c.role, c.sa, node.se.public_key(), now
     )
     node.identity = Identity(cert, issuer.cert, issuer.root_pubkey, node.se.sign)
+    node.node_toml = node_toml.write(c, issuer.sign, issuer.cert)
 
 
 def publish_directory(world: World, endpoints: dict[str, VirtualEndpoint]) -> None:

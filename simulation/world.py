@@ -8,7 +8,7 @@ from functools import partial
 from itertools import combinations
 from pathlib import Path
 
-from node import VERSION, crypto
+from node import VERSION, crypto, node_toml
 from node.bundle import Receipt, decode_receipt
 from node.core import T_LEDGER, NodeConfig, NodeCore
 from node.events import (
@@ -91,12 +91,16 @@ class SimNode:
     external_power: bool = True
     busy_until: float = 0.0  # virtual time its current work finishes (spec §12.2 compute)
     version: str = VERSION  # software running (the active A/B slot)
+    node_toml: str = ""  # the signed config written at provisioning; boot refuses anything else
 
     def boot(self, now: float) -> None:
         """Start the node from what is on disk (also used after a power cut)."""
         if self.identity is None:
             raise RuntimeError(f"{self.id} was never provisioned")
-        self.core = self.core_class(self.config, self.storage.load(), self.identity)
+        config = node_toml.load(self.node_toml, self.identity.root_pubkey)  # ConfigError if not
+        if config != self.config:
+            raise node_toml.ConfigError(f"{self.id}: node.toml is not this node's config")
+        self.core = self.core_class(config, self.storage.load(), self.identity)
         if self.attacks:
             self.core.attacks = self.attacks  # type: ignore[attr-defined]
         self.boot_at = now
