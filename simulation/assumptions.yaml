@@ -24,3 +24,8 @@ radio:
   loss_in_good: {value: 0.0, unit: per frame, source: estimate, ref: "Gilbert-Elliott"}
   loss_in_bad: {value: 0.5, unit: per frame, source: estimate, ref: "Gilbert-Elliott"}
   bit_flip_per_frame: {value: 0.0, unit: per frame, source: estimate, ref: "residual corruption past the link CRC, off unless a scenario sets it"}
+  antenna_hub_m: {value: 8, unit: m, source: estimate, ref: "mast on the hospital roof"}
+  antenna_site_m: {value: 4, unit: m, source: estimate, ref: "clinic wall or roof edge"}
+  antenna_relay_m: {value: 6, unit: m, source: estimate, ref: "street-light pole"}
+  antenna_mule_m: {value: 2, unit: m, source: estimate, ref: "vehicle roof or rear shelf"}
+  clutter_db_per_100m: {value: 20, unit: dB per 100 m fully built, source: estimate, ref: "scaled by OSM building share along the path; ITU-R P.2108 gives statistics, not per-path values"}

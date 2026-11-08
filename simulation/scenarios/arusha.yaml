@@ -4,7 +4,7 @@
 name: arusha
 duration_s: 86400
 tick_s: 2
-geo: {lat: -3.36557, lon: 36.69487}
+geo: {lat: -3.36557, lon: 36.69487, terrain: arusha}
 nodes:
 - id: HOSPITAL
   role: hub

@@ -252,7 +252,11 @@ def scenario() -> None:
         "name": "arusha",
         "duration_s": 86400,
         "tick_s": 2,
-        "geo": {"lat": SITES["HOSPITAL"][2][0], "lon": SITES["HOSPITAL"][2][1]},
+        "geo": {
+            "lat": SITES["HOSPITAL"][2][0],
+            "lon": SITES["HOSPITAL"][2][1],
+            "terrain": "arusha",
+        },
         "nodes": nodes,
         "endpoints": [{"name": n.lower().replace("_", "-"), "node": n} for n in SITES],
         "workload": workload,

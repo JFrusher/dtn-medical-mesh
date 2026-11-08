@@ -65,6 +65,7 @@ class Scenario:
     messages: tuple[MessageSpec, ...]
     faults: tuple[FaultSpec, ...] = ()
     geo: LatLon | None = None  # origin; when set, the file's coordinates are [lat, lon]
+    terrain: str | None = None  # simulation/geo/<terrain>/: elevation and clutter grids
     overrides: dict[str, float] = field(default_factory=dict)  # "group.name" -> value
 
 
@@ -96,7 +97,7 @@ def _parse(raw: dict[str, Any]) -> Scenario:
     geo = raw.get("geo")
     origin: LatLon | None = None
     if geo is not None:
-        _keys(geo, "geo", {"lat", "lon"})
+        _keys(geo, "geo", {"lat", "lon", "terrain"})
         origin = (float(geo["lat"]), float(geo["lon"]))
 
     def point(p: list[float]) -> tuple[float, float]:
@@ -112,6 +113,7 @@ def _parse(raw: dict[str, Any]) -> Scenario:
         tick_s=float(raw.get("tick_s", 1.0)),
         radio=RadioParams.defaults(**raw.get("radio", {})),
         geo=origin,
+        terrain=(geo or {}).get("terrain"),
         nodes=nodes,
         endpoints=endpoints,
         messages=tuple(

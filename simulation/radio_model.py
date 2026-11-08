@@ -23,6 +23,11 @@ class RadioParams:
     ble_adv_interval_s: float
     ble_scan_duty: float
     wifi_join_s: float
+    antenna_hub_m: float
+    antenna_site_m: float
+    antenna_relay_m: float
+    antenna_mule_m: float
+    clutter_db_per_100m: float
     lora_range_m: float
     lora_sf: int
     lora_bw_hz: float
@@ -75,6 +80,10 @@ class DutyCycle:
             return False
         self.used.append((now, airtime))
         return True
+
+
+WIFI_WAVELENGTH_M = 299_792_458 / 2.437e9  # channel 6
+LORA_WAVELENGTH_M = 299_792_458 / 868.1e6
 
 
 # IEEE 802.11n-2009 table 20-23: minimum receiver sensitivity (dBm) and PHY rate (Mbit/s)

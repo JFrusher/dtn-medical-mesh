@@ -29,10 +29,11 @@ from node.events import (
 )
 from node.hw.radio import RadioKind
 from node.hw.rtc import RtcError
-from node.pki import Identity
+from node.pki import Identity, Role
 from node.storage import STORAGE_KEY_SLOT, Storage
 from simulation.mobility import Mobility
 from simulation.radio_model import (
+    WIFI_WAVELENGTH_M,
     DutyCycle,
     Link,
     RadioParams,
@@ -44,6 +45,7 @@ from simulation.radio_model import (
     wifi_reach_m,
 )
 from simulation.scheduler import Scheduler
+from simulation.terrain import Terrain
 from simulation.virtual_hw import Battery, SeededEntropy, SoftwareSecureElement, VirtualRtc
 
 POWER_TICK_S = 60.0
@@ -100,7 +102,9 @@ class World:
         radio: RadioParams | None = None,
         tick_s: float = 1.0,
         log: LogFn | None = None,
+        terrain: Terrain | None = None,
     ) -> None:
+        self.terrain = terrain
         self.scheduler = scheduler
         self.data_dir = data_dir
         data_dir.mkdir(parents=True, exist_ok=True)
@@ -285,7 +289,19 @@ class World:
         if link.shadow_db is None:
             sigma = r.wifi_shadow_sigma_db
             link.shadow_db = max(-3 * sigma, min(3 * sigma, self.scheduler.rng.gauss(0, sigma)))
-        link.rate = wifi_rate(wifi_mean_rx_dbm(d, r) - link.shadow_db, r)
+        loss = link.shadow_db + self._terrain_db(a, b, WIFI_WAVELENGTH_M)
+        link.rate = wifi_rate(wifi_mean_rx_dbm(d, r) - loss, r)
+
+    def _terrain_db(self, a: str, b: str, wavelength_m: float) -> float:
+        if self.terrain is None:
+            return 0.0
+        r = self.radio
+        height = {Role.HUB: r.antenna_hub_m, Role.SITE: r.antenna_site_m,
+                  Role.RELAY: r.antenna_relay_m, Role.MULE: r.antenna_mule_m}  # fmt: skip
+        return self.terrain.loss_db(
+            self.position(a), self.position(b), height[self.nodes[a].config.role],
+            height[self.nodes[b].config.role], wavelength_m, r.clutter_db_per_100m,
+        )  # fmt: skip
 
     def _sharing(self, a: str, b: str) -> int:
         """Contacts whose midpoints are within carrier-sense range share one channel."""

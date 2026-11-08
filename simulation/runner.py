@@ -14,6 +14,7 @@ from simulation.metrics import evaluate
 from simulation.provision import provision, publish_directory
 from simulation.scenario import MessageSpec, Scenario, load_scenario
 from simulation.scheduler import Scheduler
+from simulation.terrain import Terrain
 from simulation.virtual_hw import Battery, SeededEntropy
 from simulation.world import World
 
@@ -43,7 +44,12 @@ def build(scenario: Scenario, seed: int, data_dir: Path, echo: bool = False) -> 
             print(line)
 
     scheduler = Scheduler(seed)
-    world = World(scheduler, data_dir, scenario.radio, scenario.tick_s, log)
+    terrain = Terrain.load(scenario.terrain) if scenario.terrain else None
+    if terrain and terrain.origin != scenario.geo:
+        raise ValueError(
+            f"terrain {scenario.terrain} is centred on {terrain.origin}, not {scenario.geo}"
+        )
+    world = World(scheduler, data_dir, scenario.radio, scenario.tick_s, log, terrain)
     for spec in scenario.nodes:
         battery = Battery(**spec.battery) if spec.battery else None
         node = world.add_node(spec.config, spec.mobility, battery)
