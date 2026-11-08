@@ -2,6 +2,7 @@
 // has a geographic origin, a plain ground otherwise. Nodes, contacts and moving message pieces
 // are drawn on an SVG overlay in screen pixels, so they look the same at any zoom.
 /* global maplibregl, pmtiles, basemaps */
+import { t as tr } from "/static/i18n.js";
 const NS = "http://www.w3.org/2000/svg";
 const M_LAT = 110540, M_LON = 111320;
 const FLIGHT_MS = 1400;  // how long a moving piece takes to cross a contact on screen
@@ -97,7 +98,8 @@ export class NetMap {
       const g = groupOf[n.id];
       if (!g || g.length < 2) return undefined;
       const total = g.reduce((s, m) => s + m.shards, 0);
-      return g[0] === n ? `${g.length} vehicles${total ? `, carrying ${total}` : ""}` : "";
+      if (g[0] !== n) return "";
+      return total ? tr("map.vehicles_carrying", { n: g.length, total }) : tr("map.vehicles", { n: g.length });
     };
     for (const n of [...t.nodes.filter(n => !places.includes(n)), ...places]) out.push(this.node(n, pos[n.id], label(n)));
     out.push(...this.selection(pos), ...this.pieces(pos));
@@ -128,7 +130,7 @@ export class NetMap {
       const [x, y] = pos[id];
       out.push(el("circle", { cx: x, cy: y, r: 15, class: "holder" }));
       const label = el("text", { x: x + 18, y: y - 12, class: "holder-label" });
-      label.textContent = id === j.to_node ? `${count} of ${j.k} needed` : `holds ${count}`;
+      label.textContent = id === j.to_node ? tr("map.needed", { n: count, k: j.k }) : tr("map.holds", { n: count });
       out.push(label);
     }
     return out;
@@ -147,9 +149,9 @@ export class NetMap {
       shape = el("circle", { cx: x, cy: y, r: 5.5, class: !n.up ? "off" : n.hostile ? "hostile" : "carrier" });
     }
     const title = document.createElementNS(NS, "title");
-    title.textContent = `${pretty(n.id)}${n.hostile ? " (attacker)" : ""}${n.up ? "" : ", powered off"}`
-      + (n.shards ? `, holding ${n.shards} message pieces` : "")
-      + (n.battery_pct == null ? "" : `, battery ${Math.round(n.battery_pct)}%`);
+    title.textContent = [pretty(n.id) + (n.hostile ? ` ${tr("map.attacker")}` : ""),
+      n.up ? null : tr("map.powered_off"), n.shards ? tr("map.holding", { n: n.shards }) : null,
+      n.battery_pct == null ? null : tr("map.battery", { pct: Math.round(n.battery_pct) })].filter(Boolean).join(", ");
     g.append(shape, title);
     // places label to the right, carriers to the left, so a van parked at a clinic stays readable
     const label = (text, cls, dy) => {
@@ -161,8 +163,8 @@ export class NetMap {
     if (place) label(pretty(n.id), n.role === "hub" ? "name hub" : "name", 4.5);
     else if (n.hostile && n.up) label(pretty(n.id), "minor", 4.5);
     if (groupLabel !== undefined) { if (groupLabel) label(groupLabel, "load", 4.5); }
-    else if (n.shards) label(place ? `${n.shards} waiting` : `carrying ${n.shards}`, "load", place ? 20 : 4.5);
-    if (!n.up) label("off", "minor", place ? 20 : 4.5);
+    else if (n.shards) label(tr(place ? "map.waiting" : "map.carrying", { n: n.shards }), "load", place ? 20 : 4.5);
+    if (!n.up) label(tr("map.off"), "minor", place ? 20 : 4.5);
     return g;
   }
 }

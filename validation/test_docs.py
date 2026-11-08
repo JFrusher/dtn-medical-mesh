@@ -1,3 +1,4 @@
+import json
 import re
 import tomllib
 from pathlib import Path
@@ -13,7 +14,13 @@ ROOT = Path(__file__).resolve().parent.parent
 def test_readme_and_ui_exclude_emergency_use() -> None:
     readme = (ROOT / "README.md").read_text()
     page = (ROOT / "interface/static/demo.html").read_text()
-    assert "Not for emergencies" in readme and "Not for emergencies" in page
+    i18n = ROOT / "interface/static/i18n"
+    catalogues = [json.loads(f.read_text()) for f in i18n.glob("*.json")]
+    assert "Not for emergencies" in readme and 'data-i18n="banner"' in page
+    assert json.loads((ROOT / "interface/static/i18n/en.json").read_text())["banner"].startswith(
+        "Not for emergencies"
+    )
+    assert all(c["banner"] for c in catalogues)  # every language carries the warning
     assert "Not certified" in readme
 
 

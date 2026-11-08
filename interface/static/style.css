@@ -147,6 +147,8 @@ button, select, textarea, input { font: inherit; color: inherit; }
 /* footer */
 .foot { display: flex; align-items: center; gap: 24px; padding: 8px 20px; font-size: 13px; color: var(--muted); background: var(--surface); border-top: 1px solid var(--rule); }
 .banner { margin: 0; color: var(--ink); }
+.draft { margin: 0; color: var(--transit); }
+.lang select { border: 1px solid var(--rule); background: var(--surface); border-radius: 6px; padding: 3px 6px; }
 .key { display: flex; gap: 16px; margin-left: auto; }
 .key i { display: inline-block; width: 9px; height: 9px; margin-right: 5px; vertical-align: -1px; }
 .key .p { background: var(--ink); } .key .c { background: var(--accent); border-radius: 50%; }

@@ -12,48 +12,62 @@
 </head>
 <body>
   <header class="bar">
-    <h1>Satchel</h1>
-    <span class="clock" id="clock" aria-live="off">Day 1, 00:00</span>
-    <div class="speed" role="group" aria-label="Simulation speed">
-      <button data-paused="true" aria-label="Pause">❚❚</button>
+    <h1 data-i18n="app.title"></h1>
+    <span class="clock" id="clock" aria-live="off"></span>
+    <div class="speed" role="group" data-i18n-aria-label="speed.group">
+      <button data-paused="true" data-i18n-aria-label="speed.pause">❚❚</button>
       <button data-speed="1">1×</button>
       <button data-speed="60">60×</button>
       <button data-speed="600">600×</button>
     </div>
-    <div class="views" role="tablist" aria-label="View">
-      <button role="tab" data-view="map" aria-selected="true">Map</button>
-      <button role="tab" data-view="journey" aria-selected="false">Journey</button>
+    <div class="views" role="tablist" data-i18n-aria-label="view.group">
+      <button role="tab" data-view="map" aria-selected="true" data-i18n="view.map"></button>
+      <button role="tab" data-view="journey" aria-selected="false" data-i18n="view.journey"></button>
     </div>
     <div class="counts" id="counts" aria-live="polite"></div>
+    <label class="lang"><span class="sr-only" data-i18n="lang.label"></span><select id="lang"></select></label>
   </header>
 
   <main class="stage">
     <div id="map"></div>
-    <svg id="overlay" role="img" aria-label="Clinics, vehicles and relays, the contacts open now and message pieces moving between them"></svg>
-    <section class="journey" id="journey" hidden aria-label="Message journey"></section>
-    <div class="following" hidden>Following <b></b><button type="button">Clear</button></div>
+    <svg id="overlay" role="img" data-i18n-aria-label="map.overlay"></svg>
+    <section class="journey" id="journey" hidden data-i18n-aria-label="journey.label"></section>
+    <div class="following" hidden><span data-i18n="map.following"></span> <b></b><button type="button" data-i18n="map.clear"></button></div>
     <button class="open left" data-drawer="left" aria-controls="left"></button>
     <button class="open right" data-drawer="right" aria-controls="right"></button>
     <aside class="drawer left" id="left" hidden></aside>
     <aside class="drawer right" id="right" hidden></aside>
-    <pre class="log" id="log" hidden aria-label="Activity"></pre>
+    <pre class="log" id="log" hidden data-i18n-aria-label="activity.label"></pre>
   </main>
 
   <footer class="foot">
-    <p class="banner" role="note">Not for emergencies. Messages travel with vehicles and staff, so delivery can take hours and timing is never guaranteed.</p>
+    <p class="banner" role="note" data-i18n="banner"></p>
+    <p class="draft" role="note" hidden data-i18n="lang.draft"></p>
     <div class="key" aria-hidden="true">
-      <span><i class="p"></i>Hospital or clinic</span>
-      <span><i class="c"></i>Vehicle or person</span>
-      <span><i class="r"></i>Relay</span>
-      <span class="hostile-key" hidden><i class="h"></i>Attacker (emulated)</span>
+      <span><i class="p"></i><span data-i18n="key.place"></span></span>
+      <span><i class="c"></i><span data-i18n="key.carrier"></span></span>
+      <span><i class="r"></i><span data-i18n="key.relay"></span></span>
+      <span class="hostile-key" hidden><i class="h"></i><span data-i18n="key.hostile"></span></span>
     </div>
-    <button class="activity" aria-controls="log" aria-expanded="false">Show activity</button>
+    <button class="activity" aria-controls="log" aria-expanded="false" data-i18n="activity.show"></button>
   </footer>
 
   <script type="module">
     import { Chat } from "/static/chat.js";
     import { NetMap, pretty } from "/static/map.js";
     import { Journey } from "/static/journey.js";
+    import { LANGUAGES, reviewed, savedLanguage, setLanguage, t } from "/static/i18n.js";
+
+    const lang = document.getElementById("lang");
+    for (const [code, name] of Object.entries(LANGUAGES)) lang.add(new Option(name, code));
+    lang.onchange = () => setLanguage(lang.value);
+    document.addEventListener("languagechange", () => {
+      lang.value = document.documentElement.lang;
+      document.querySelector(".draft").hidden = reviewed();
+      activity.textContent = t(log.hidden ? "activity.show" : "activity.hide");
+    });
+    const log = document.getElementById("log"), activity = document.querySelector(".activity");
+    await setLanguage(savedLanguage());
 
     const endpoints = await (await fetch("/api/endpoints")).json();
     const hub = endpoints.find(e => e.name.includes("hospital")) ?? endpoints.at(-1);
@@ -69,11 +83,10 @@
       chats[side].onChange = label; label();
     }
 
-    const log = document.getElementById("log"), activity = document.querySelector(".activity");
     activity.onclick = () => {
       log.hidden = !log.hidden;
       activity.setAttribute("aria-expanded", !log.hidden);
-      activity.textContent = log.hidden ? "Show activity" : "Hide activity";
+      activity.textContent = t(log.hidden ? "activity.show" : "activity.hide");
     };
 
     const map = new NetMap(document.getElementById("map"), document.getElementById("overlay"));
@@ -102,18 +115,18 @@
 
     const counts = document.getElementById("counts"), clock = document.getElementById("clock");
     const ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws`);
-    const render = t => {
-      const s = t.stats;
-      map.draw(t);
-      document.querySelector(".hostile-key").hidden = !t.nodes.some(n => n.hostile);
-      const h = Math.floor(t.t / 3600), m = Math.floor(t.t % 3600 / 60);
-      clock.textContent = `Day ${Math.floor(h / 24) + 1}, ${String(h % 24).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
-      counts.innerHTML = `<span><b>${s.delivered}</b>delivered</span><span><b>${s.in_transit}</b>in transit</span>`
-        + `<span class="${s.not_delivered ? "bad" : ""}"><b>${s.not_delivered}</b>not delivered</span>`
-        + (s.rejected ? `<span><b>${s.rejected.toLocaleString()}</b>bad frames refused</span>` : "");
-      log.textContent = t.events.join("\n");
+    const render = tel => {
+      const s = tel.stats;
+      map.draw(tel);
+      document.querySelector(".hostile-key").hidden = !tel.nodes.some(n => n.hostile);
+      const h = Math.floor(tel.t / 3600), m = Math.floor(tel.t % 3600 / 60);
+      clock.textContent = t("clock", { day: Math.floor(h / 24) + 1, time: `${String(h % 24).padStart(2, "0")}:${String(m).padStart(2, "0")}` });
+      counts.innerHTML = `<span><b>${s.delivered}</b>${t("count.delivered")}</span><span><b>${s.in_transit}</b>${t("count.in_transit")}</span>`
+        + `<span class="${s.not_delivered ? "bad" : ""}"><b>${s.not_delivered}</b>${t("count.not_delivered")}</span>`
+        + (s.rejected ? `<span><b>${s.rejected.toLocaleString()}</b>${t("count.rejected")}</span>` : "");
+      log.textContent = tel.events.join("\n");
       for (const b of buttons) b.setAttribute("aria-pressed",
-        b.dataset.paused ? t.paused : !t.paused && Number(b.dataset.speed) === t.speed);
+        b.dataset.paused ? tel.paused : !tel.paused && Number(b.dataset.speed) === tel.speed);
     };
     ws.onmessage = ev => render(JSON.parse(ev.data));
     window.render = render;  // lets tools/record_gifs.py draw exact frames

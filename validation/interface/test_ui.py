@@ -101,3 +101,23 @@ def test_expired_message_shows_not_delivered_alert(tmp_path: Path, page: Page) -
             "NOT DELIVERED — use another channel", timeout=20_000
         )
         page.screenshot(path=OUT / "not-delivered.png")
+
+
+@pytest.mark.req("REQ-SAFE-03")
+def test_language_switch_translates_the_page_and_flags_draft_swahili(
+    tmp_path: Path, page: Page
+) -> None:
+    sim = LiveSim(build(load_scenario("skeleton"), 1, tmp_path), speed=60)
+    for url in serve(sim):
+        page.goto(url)
+        expect(page.locator(".banner")).to_contain_text("Not for emergencies")
+        expect(page.locator(".draft")).to_be_hidden()
+        page.select_option("#lang", "sw")
+        expect(page.locator(".banner")).to_contain_text("Si kwa dharura")
+        expect(page.locator("html")).to_have_attribute("lang", "sw")
+        expect(page.locator(".draft")).to_be_visible()  # machine-drafted, not yet reviewed
+        expect(page.locator("#clock")).to_contain_text("Siku 1")
+        page.reload()  # remembered
+        expect(page.locator(".banner")).to_contain_text("Si kwa dharura")
+        page.select_option("#lang", "en")
+        expect(page.locator(".views button").first).to_have_text("Map")
