@@ -24,4 +24,5 @@ Shipped in `interface/static/` so the demo works with no internet. Rebuilt by `t
 | pmtiles (JS) | v4.5.0 | BSD-3-Clause | Reads the bundled map file |
 | @protomaps/basemaps | v5.7.2 | BSD-3-Clause | Map styling |
 | Arusha map extract | Protomaps build 2026-11-07 | ODbL, © OpenStreetMap contributors | Streets, places, water |
+| Arusha terrain grids (`simulation/geo/arusha/`) | Mapzen terrarium tiles z12; OSM buildings from the extract above | Elevation: public domain / open (SRTM and others, AWS Open Data); buildings: ODbL | Emulator radio terrain and clutter only; never used by node code |
 | Noto Sans glyphs | basemaps-assets | SIL OFL 1.1 | Map labels |
