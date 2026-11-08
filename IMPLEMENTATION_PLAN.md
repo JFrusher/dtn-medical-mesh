@@ -4,7 +4,7 @@ Companion to [`PROJECT_SPEC.md`](PROJECT_SPEC.md). Section references (§) point
 
 ## Status
 
-**Phases 0–7 are implemented.** All active requirements are covered by passing tests (`uv run python validation/trace_matrix.py`); every shipped scenario reports zero silent losses; the stress scenario runs on 5 seeds in CI. Deviations from the steps below are recorded in commit messages and in spec §17. Next: hardware phases H1/H2.
+**Phases 0–7 are implemented and merged.** **Phases 8–11 (spec v0.2) are planned:** pilot-grade emulation, pilot sizing, the staff app, and the admin console with node software. Hardware phases H1/H2 follow.
 
 ## How to use this plan
 
@@ -182,6 +182,68 @@ Goal: in the emulator, a clinic endpoint sends one text note and the hospital en
 | P7.S05 | Architecture and protocol docs (detail of §6–§8). | `docs/architecture.md`, `docs/protocol.md` | — |
 
 **Phase 1–7 exit:** every scenario × 5 seeds shows zero silent losses; the trace matrix shows every P-requirement covered; the demo runs offline from a clean clone with `uv run dtn-demo`.
+
+---
+
+## Spec v0.2 phases (emulated, no hardware needed)
+
+Same rules as above: one commit per step, a verify command, requirement tags. New requirement IDs are added to `docs/requirements.md` in the step that first needs them.
+
+## Phase 8 — Pilot-grade emulation (spec §12.2)
+
+| ID | Step | Files | Verify |
+|---|---|---|---|
+| P8.S01 | `simulation/assumptions.yaml`: every physical and compute parameter with value, unit and **source** (published / estimate / measured); the scenario loader merges it; the run report lists assumptions used. | `simulation/assumptions.yaml`, `simulation/scenario.py`, `simulation/metrics.py`, tests | `uv run pytest validation/sim/test_assumptions.py` |
+| P8.S02 | Path-loss link model: log-distance with log-normal shadowing per contact; received power decides whether a contact forms and its throughput (stepped Wi-Fi rates). Replaces the disc model; existing scenarios keep similar ranges by calibrating defaults. | `simulation/radio_model.py`, tests | `uv run pytest validation/sim/test_radio.py` |
+| P8.S03 | BLE discovery before Wi-Fi: advertising interval and scan window give a random discovery delay; Wi-Fi setup starts after discovery. | `simulation/radio_model.py`, `simulation/world.py`, tests | same |
+| P8.S04 | Shared airtime: contacts within the same neighbourhood split one channel's capacity. | `simulation/world.py`, tests | same |
+| P8.S05 | Terrain data: `tools/build_arusha.py` fetches SRTM elevation (AWS open terrain tiles) for the bbox and extracts OSM building footprints from the map file into a coarse **clutter grid**; both stored in `simulation/geo/arusha/`. | `tools/build_arusha.py`, data files | files exist, sizes logged |
+| P8.S06 | Terrain-aware loss: line-of-sight check with Fresnel clearance over the elevation profile, plus clutter loss from building density along the path; applies to Wi-Fi and LoRa in geo scenarios. | `simulation/terrain.py`, tests | `uv run pytest validation/sim/test_terrain.py` |
+| P8.S07 | LoRa link budget per spreading factor on the same path model (replaces fixed range). | `simulation/radio_model.py`, tests | `uv run pytest validation/sim/test_radio.py` |
+| P8.S08 | Compute cost model: per-operation times per node type (P-256 verify, Ed25519, XChaCha20 per MB, SHA-256 per MB, erasure decode per MB, SQLCipher write) from published Pi benchmarks, marked as assumptions; the world charges a node's busy time before its actions take effect. | `simulation/compute.py`, `simulation/world.py`, tests | `uv run pytest validation/sim/test_compute.py` |
+| P8.S09 | Storage throughput and flash-wear counter per node; report peak write rate and projected card life. | `simulation/world.py`, `simulation/metrics.py`, tests | same |
+| P8.S10 | Schedules with noise: departure jitter, traffic delay factor, skipped rounds, breakdowns (with repair time), weekly patterns; seeded. Route YAML gains a `schedule` block. | `simulation/mobility.py`, `simulation/scenario.py`, tests | `uv run pytest validation/sim/test_mobility.py` |
+| P8.S11 | On-foot couriers: irregular walks between a set of places with random dwell. | `simulation/mobility.py`, tests | same |
+| P8.S12 | Power per variant from spec §11.2 and monthly irradiance curve; battery days of autonomy in the report. | `simulation/virtual_hw.py`, tests | `uv run pytest validation/sim/test_power.py` |
+| P8.S13 | Re-run all scenarios; update README results and record changes in the spec decision log. | README, spec | all scenarios: zero violations |
+
+## Phase 9 — Pilot sizing (spec §12.3)
+
+| ID | Step | Files | Verify |
+|---|---|---|---|
+| P9.S01 | Batch runner: run a scenario across N seeds in parallel processes; collect per-message results into CSV. | `simulation/batch.py`, tests | `uv run python -m simulation.batch arusha --seeds 5` |
+| P9.S02 | Parameter sweeps: vary vehicle count, relay count and placement, parity, message volume via scenario overrides. | `simulation/batch.py`, tests | sweep of 2 values × 3 seeds runs |
+| P9.S03 | Sizing report: delivery-time percentiles with confidence intervals, critical-within-N-hours, storage and battery, overhead; charts as SVG; Markdown summary with the assumptions table. | `simulation/report.py` | report renders for `arusha` |
+| P9.S04 | Arusha sizing study committed to `docs/sizing/arusha.md` with a plain-language conclusion and its caveats. | docs | review |
+
+## Phase 10 — Staff app (spec §10.1–10.5)
+
+| ID | Step | Files | Verify |
+|---|---|---|---|
+| P10.S01 | Translation catalogue (ICU MessageFormat), language switcher, English strings extracted from the current UI; Swahili machine-drafted and **marked unreviewed** until a native clinician checks them. | `interface/static/i18n/*`, tests | UI test switches language |
+| P10.S02 | Browser crypto matching the Python reference: XChaCha20-Poly1305, X25519, Ed25519 (libsodium WebAssembly, vendored); shared test vectors generated by `endpoint/` and checked in both. | `interface/static/crypto.js`, `validation/endpoint/vectors.json`, tests | Python and browser agree on vectors |
+| P10.S03 | Move sealing, padding and sharding into the browser; the server receives only finished shards (spec §9.6). | `interface/static/*`, `interface/app.py`, tests | UI test: server never receives plaintext |
+| P10.S04 | Device enrolment and PIN sign-in: device keys encrypted at rest, unlocked by PIN; auto-lock; author recorded in the signed payload. | static, endpoint, tests | UI test |
+| P10.S05 | Patients list and patient-grouped messages (name, age, sex, local ID only). | static, `endpoint/fhir.py`, tests | UI test |
+| P10.S06 | Structured referral form → FHIR `ServiceRequest`; camera capture on phones. | static, `endpoint/fhir.py`, tests | UI test |
+| P10.S07 | Case status: Accept / Decline / Need information responses as tracked messages. | static, endpoint, tests | UI test end to end |
+| P10.S08 | Hospital triage inbox sorted by urgency then age. | static, tests | UI test |
+| P10.S09 | Results back to the clinic (FHIR `DiagnosticReport`). | static, endpoint, tests | UI test |
+| P10.S10 | Phone layout and accessibility pass (360 px, touch targets, screen-reader labels), checked by screenshots and an automated accessibility scan. | static, tests | Playwright + axe scan clean |
+
+## Phase 11 — Admin console and node software (spec §9.3–9.6, §10.6)
+
+| ID | Step | Files | Verify |
+|---|---|---|---|
+| P11.S01 | Health telemetry bundles from every node (battery, temperature, storage, contacts, refusals, version). | `node/core.py`, tests | `uv run pytest validation/node/test_health.py` |
+| P11.S02 | Admin console: inventory, last seen, battery, storage, refusals by reason, delivery times per clinic. | `interface/static/admin.*`, `interface/app.py`, tests | UI test |
+| P11.S03 | Provision / revoke / publish directory from the console, signed by the operator's hub credential and logged. | interface, `node/pki.py`, tests | UI test + emulated revocation spreads |
+| P11.S04 | Signed `node.toml` issued at provisioning; core refuses unsigned config. | `node/pki.py`, tests | unit tests |
+| P11.S05 | Signed software updates: release key, `update` hub document, payload as a bundle, install conditions, staged rollout; emulated A/B with probation and rollback. | `node/`, `simulation/`, tests | `uv run pytest validation/sim/test_updates.py` |
+| P11.S06 | Status light state machine in the core (healthy, carrying, transferring, amber, red) shown on the map. | `node/core.py`, map, tests | unit + UI test |
+| P11.S07 | Site node as access point for staff devices (spec §9.6): endpoint-key authentication on the API. | `interface/app.py`, tests | API tests |
+
+**Phase 8–11 exit:** a sizing report for Arusha with sourced assumptions; a referral written on a phone-sized screen in Swahili reaches the hospital, is accepted, and a result comes back, all in the emulator; the admin can revoke a node and push a signed update that rolls back safely when it fails.
 
 ---
 
