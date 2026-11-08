@@ -5,7 +5,6 @@ name: arusha
 duration_s: 86400
 tick_s: 2
 geo: {lat: -3.36557, lon: 36.69487}
-radio: {wifi_range_m: 100}
 nodes:
 - id: HOSPITAL
   role: hub

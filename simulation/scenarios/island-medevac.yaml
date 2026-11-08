@@ -3,7 +3,7 @@
 name: island-medevac
 duration_s: 259200
 tick_s: 5
-radio: {wifi_range_m: 150}
+radio: {wifi_ple: 2.7}  # open water: ~150 m
 nodes:
   - {id: MAINLAND_HOSPITAL, role: hub, sa: SA_MAINLAND, at: [0, 0]}
   - {id: ISLAND_A, role: site, sa: SA_ISLAND_A, at: [15000, 0]}

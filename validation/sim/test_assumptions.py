@@ -1,3 +1,4 @@
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -17,7 +18,7 @@ def test_every_assumption_has_a_known_source() -> None:
 
 @pytest.mark.req("REQ-SIM-03")
 def test_radio_params_come_from_assumptions() -> None:
-    assert RadioParams.defaults().wifi_setup_s == ASSUMPTIONS["radio.wifi_setup_s"].value
+    assert RadioParams.defaults().wifi_join_s == ASSUMPTIONS["radio.wifi_join_s"].value
 
 
 def test_missing_source_is_rejected(tmp_path: Path) -> None:
@@ -29,8 +30,9 @@ def test_missing_source_is_rejected(tmp_path: Path) -> None:
 
 @pytest.mark.req("REQ-SIM-03")
 def test_report_lists_assumptions_and_marks_overrides(tmp_path: Path) -> None:
-    scenario = load_scenario("skeleton")
+    scenario = replace(load_scenario("skeleton"), overrides={"radio.wifi_ple": 2.7})
     report = evaluate(run(scenario, 1, tmp_path), 1)
-    assert report.assumptions["radio.wifi_range_m"]["source"] == "scenario"
+    assert report.assumptions["radio.wifi_ple"] == {"value": 2.7, "unit": "", "source": "scenario"}
+    assert load_scenario("island-medevac").overrides == {"radio.wifi_ple": 2.7}
     assert report.assumptions["radio.lora_sf"]["source"] == "estimate"
     assert "## Assumptions used" in report.to_markdown()

@@ -5,7 +5,6 @@ name: stress
 duration_s: 43200
 tick_s: 2
 radio:
-  wifi_range_m: 100
   p_good_to_bad: 0.05
   p_bad_to_good: 0.25
   loss_in_good: 0.01

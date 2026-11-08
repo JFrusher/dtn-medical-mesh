@@ -9,7 +9,17 @@ from node.hw.radio import RadioKind
 from node.pki import Role
 from simulation.mobility import Route, Static
 from simulation.provision import provision
-from simulation.radio_model import DutyCycle, Link, RadioParams, channel, lora_airtime_s
+from simulation.radio_model import (
+    DutyCycle,
+    Link,
+    RadioParams,
+    ble_discovery_s,
+    channel,
+    lora_airtime_s,
+    wifi_mean_rx_dbm,
+    wifi_rate,
+    wifi_reach_m,
+)
 from simulation.scheduler import Scheduler
 from simulation.world import World
 
@@ -17,7 +27,7 @@ from simulation.world import World
 def drive_by(tmp_path: Path, speed: float) -> World:
     """A mule drives straight past a relay; Wi-Fi range 100 m, so the window is ~200 m / speed."""
     s = Scheduler(seed=1)
-    w = World(s, tmp_path, RadioParams.defaults(wifi_bytes_per_s=100_000), tick_s=0.5)
+    w = World(s, tmp_path, RadioParams.defaults(wifi_max_bytes_per_s=100_000), tick_s=0.5)
     w.add_node(NodeConfig("RELAY", Role.RELAY, None), Static((0, 0)))
     w.add_node(NodeConfig("HUB", Role.HUB, "SA_H"), Static((50_000, 0)))
     w.add_node(NodeConfig("MULE", Role.MULE, None), Route(((-1000, 0), (1000, 0)), speed=speed))
@@ -26,12 +36,51 @@ def drive_by(tmp_path: Path, speed: float) -> World:
     return w
 
 
+def run_until_contact(w: World) -> None:
+    while frozenset(("MULE", "RELAY")) not in w.contacts:
+        assert w.scheduler.now < 60, "mule never reached the relay"
+        w.scheduler.run_until(w.scheduler.now + 0.5)
+
+
+@pytest.mark.req("REQ-SIM-03")
+def test_rate_steps_down_with_distance_and_stops_past_mcs0() -> None:
+    p = RadioParams.defaults()
+    rates = [wifi_rate(wifi_mean_rx_dbm(d, p), p) for d in (5, 30, 60, 85, 200)]
+    assert rates == sorted(rates, reverse=True) and rates[0] > rates[3] > 0 == rates[4]
+    assert rates[0] == p.wifi_max_bytes_per_s  # close by: capped by the Pi, not the radio
+    assert 80 < wifi_reach_m(p) / 10 ** (3 * p.wifi_shadow_sigma_db / (10 * p.wifi_ple)) < 100
+
+
+@pytest.mark.req("REQ-SIM-03")
+def test_ble_discovery_delay_is_random_with_the_expected_mean() -> None:
+    p, rng = RadioParams.defaults(), random.Random(3)
+    delays = [ble_discovery_s(p, rng) for _ in range(4000)]
+    assert min(delays) == p.ble_adv_interval_s
+    mean = p.ble_adv_interval_s / p.ble_scan_duty
+    assert sum(delays) / len(delays) == pytest.approx(mean, rel=0.1)
+
+
+@pytest.mark.req("REQ-SIM-03")
+def test_nearby_contacts_share_airtime(tmp_path: Path) -> None:
+    """Two parked pairs 20 m apart share a channel; a frame takes twice as long."""
+    w = World(Scheduler(seed=1), tmp_path, RadioParams.defaults(wifi_shadow_sigma_db=0))
+    w.add_node(NodeConfig("A", Role.HUB, "SA_A"), Static((0, 0)))
+    for name, x in (("B", 10), ("C", 20), ("D", 30)):
+        w.add_node(NodeConfig(name, Role.RELAY, None), Static((x, 0)))
+    w.add_node(NodeConfig("FAR", Role.RELAY, None), Static((5000, 0)))
+    provision(list(w.nodes.values()), seed=1)
+    w.start()
+    w.scheduler.run_until(10)
+    assert w._sharing("A", "B") == len(w.contacts) == 6  # every pair of the four is in contact
+    w.add_node(NodeConfig("FAR2", Role.RELAY, None), Static((5010, 0)))
+    assert w._sharing("FAR", "FAR2") == 1  # out of carrier-sense range of the others
+
+
 @pytest.mark.req("REQ-SIM-03", "REQ-PROTO-01")
 def test_drive_by_window_cuts_big_transfers(tmp_path: Path) -> None:
-    w = drive_by(tmp_path, speed=22)  # ~80 km/h: in range ~9 s, link up after 2 s
+    w = drive_by(tmp_path, speed=22)  # ~80 km/h: in range ~8 s, link up ~2 s after reach
     s = w.scheduler
-    s.run_until(45)  # in range from ~41 s, link up ~2 s later
-    assert frozenset(("MULE", "RELAY")) in w.contacts
+    run_until_contact(w)
     frame = b"x" * 2_000_000  # 20 s of airtime at 100 kB/s: cannot finish
     w._transmit("RELAY", SendFrame(peer_id="MULE", radio=RadioKind.WIFI, frame=frame))
     before = w.lost_frames
@@ -50,7 +99,7 @@ def test_link_needs_setup_time_and_frames_queue(tmp_path: Path) -> None:
 @pytest.mark.req("REQ-SIM-03")
 def test_frame_lost_when_contact_drops_does_not_leak_into_next_contact(tmp_path: Path) -> None:
     w = drive_by(tmp_path, speed=22)
-    w.scheduler.run_until(45)
+    run_until_contact(w)
     link = w.links[frozenset(("MULE", "RELAY"))]
     w._transmit("RELAY", SendFrame(peer_id="MULE", radio=RadioKind.WIFI, frame=b"y" * 3_000_000))
     w.scheduler.run_until(400)  # route loops back past the relay: a new contact, new generation

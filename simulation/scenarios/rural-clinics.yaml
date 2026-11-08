@@ -3,7 +3,6 @@
 name: rural-clinics
 duration_s: 259200
 tick_s: 2
-radio: {wifi_range_m: 100}
 nodes:
   - {id: HOSPITAL, role: hub, sa: SA_HOSPITAL, at: [0, 0]}
   - {id: CLINIC_1, role: site, sa: SA_CLINIC_1, at: [12000, 3000]}

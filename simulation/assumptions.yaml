@@ -3,9 +3,17 @@
 # replaced), or measured (an H1 bench measurement). Scenarios may override radio values; the
 # run report lists every value used and marks overrides.
 radio:
-  wifi_range_m: {value: 100, unit: m, source: estimate, ref: "Pi Zero 2 W on-board antenna, outdoor, between vehicles and poles"}
-  wifi_setup_s: {value: 2.0, unit: s, source: estimate, ref: "spec §8.2 target: BLE discovery to data flowing"}
-  wifi_bytes_per_s: {value: 1500000, unit: B/s, source: estimate, ref: "per direction, Pi Zero 2 W"}
+  wifi_tx_dbm: {value: 17, unit: dBm, source: published, ref: "CYW43438 (Pi Zero 2 W) datasheet, 802.11n output power, typical"}
+  wifi_antenna_dbi: {value: 0, unit: dBi, source: estimate, ref: "on-board PCB antenna, each end"}
+  wifi_pl1m_db: {value: 40.2, unit: dB, source: published, ref: "free-space loss at 1 m, 2.437 GHz (Friis)"}
+  wifi_ple: {value: 3.0, unit: "", source: published, ref: "log-distance path-loss exponent, urban outdoor 2.7-3.5 (Rappaport, Wireless Communications, table 4.2); mid value"}
+  wifi_shadow_sigma_db: {value: 6, unit: dB, source: published, ref: "log-normal shadowing, 4-8 dB outdoor (Rappaport 4.9.2); drawn once per contact"}
+  wifi_goodput_fraction: {value: 0.5, unit: of PHY rate, source: estimate, ref: "MAC, TCP and TLS overhead"}
+  wifi_max_bytes_per_s: {value: 2500000, unit: B/s, source: estimate, ref: "Pi Zero 2 W CPU and SDIO ceiling (~20 Mbit/s)"}
+  wifi_cs_range_m: {value: 200, unit: m, source: estimate, ref: "carrier-sense neighbourhood: contacts this close share one channel's airtime"}
+  ble_adv_interval_s: {value: 0.2, unit: s, source: estimate, ref: "BLE advertising interval; Bluetooth Core spec allows 20 ms-10.24 s"}
+  ble_scan_duty: {value: 0.25, unit: "", source: estimate, ref: "scan window / scan interval; chance each advertisement is heard"}
+  wifi_join_s: {value: 1.5, unit: s, source: estimate, ref: "Wi-Fi Direct join, key exchange and first frame after BLE discovery"}
   lora_range_m: {value: 2000, unit: m, source: estimate, ref: "SX1262 SF9, urban"}
   lora_sf: {value: 9, unit: "", source: estimate, ref: "spreading factor chosen for range vs airtime"}
   lora_bw_hz: {value: 125000, unit: Hz, source: published, ref: "LoRaWAN default bandwidth"}

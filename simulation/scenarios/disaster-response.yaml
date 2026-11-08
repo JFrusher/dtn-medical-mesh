@@ -3,7 +3,7 @@
 name: disaster-response
 duration_s: 86400
 tick_s: 2
-radio: {wifi_range_m: 80, p_good_to_bad: 0.02, p_bad_to_good: 0.3, loss_in_bad: 0.4}
+radio: {wifi_ple: 3.1, p_good_to_bad: 0.02, p_bad_to_good: 0.3, loss_in_bad: 0.4}
 nodes:
   - {id: FIELD_HOSPITAL, role: hub, sa: SA_FIELD_HOSPITAL, at: [0, 0]}
   - {id: POST_NORTH, role: site, sa: SA_POSTS, at: [0, 4000]}

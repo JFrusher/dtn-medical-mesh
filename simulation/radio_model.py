@@ -12,9 +12,17 @@ from simulation.assumptions import group
 class RadioParams:
     """Values come from simulation/assumptions.yaml; build with `RadioParams.defaults()`."""
 
-    wifi_range_m: float
-    wifi_setup_s: float
-    wifi_bytes_per_s: float
+    wifi_tx_dbm: float
+    wifi_antenna_dbi: float
+    wifi_pl1m_db: float
+    wifi_ple: float
+    wifi_shadow_sigma_db: float
+    wifi_goodput_fraction: float
+    wifi_max_bytes_per_s: float
+    wifi_cs_range_m: float
+    ble_adv_interval_s: float
+    ble_scan_duty: float
+    wifi_join_s: float
     lora_range_m: float
     lora_sf: int
     lora_bw_hz: float
@@ -40,7 +48,9 @@ class Link:
     generation: int = 0
     up: bool = False
     bad: bool = False  # Gilbert-Elliott channel state
-    busy_until: dict[str, float] = field(default_factory=dict)  # per sending node
+    busy_until: float = 0.0  # half duplex: both directions queue on one channel
+    shadow_db: float | None = None  # drawn when the pair comes within reach, kept for the pass
+    rate: float = 0.0  # goodput in bytes/s at the current distance; 0 = out of reach
 
 
 def lora_airtime_s(payload_bytes: int, sf: int, bw_hz: float, cr: int) -> float:
@@ -67,8 +77,40 @@ class DutyCycle:
         return True
 
 
-def transfer_s(n_bytes: int, params: RadioParams) -> float:
-    return n_bytes / params.wifi_bytes_per_s
+# IEEE 802.11n-2009 table 20-23: minimum receiver sensitivity (dBm) and PHY rate (Mbit/s)
+# for MCS 0-7, 20 MHz, one spatial stream, 800 ns guard interval.
+WIFI_MCS = (
+    (-82, 6.5), (-79, 13), (-77, 19.5), (-74, 26), (-70, 39), (-66, 52), (-65, 58.5), (-64, 65)
+)  # fmt: skip
+
+
+def path_loss_db(d_m: float, pl1m_db: float, ple: float) -> float:
+    """Log-distance path loss (Rappaport eq. 4.68)."""
+    return pl1m_db + 10 * ple * math.log10(max(d_m, 1.0))
+
+
+def wifi_mean_rx_dbm(d_m: float, p: RadioParams) -> float:
+    return p.wifi_tx_dbm + 2 * p.wifi_antenna_dbi - path_loss_db(d_m, p.wifi_pl1m_db, p.wifi_ple)
+
+
+def wifi_rate(rx_dbm: float, p: RadioParams) -> float:
+    """Goodput (bytes/s) of the fastest MCS the signal supports; 0 below MCS 0."""
+    phy = max((mbit for sens, mbit in WIFI_MCS if rx_dbm >= sens), default=0.0)
+    return min(phy * 1e6 / 8 * p.wifi_goodput_fraction, p.wifi_max_bytes_per_s)
+
+
+def wifi_reach_m(p: RadioParams) -> float:
+    """Distance beyond which even a +3 sigma shadowing draw cannot reach MCS 0."""
+    budget = p.wifi_tx_dbm + 2 * p.wifi_antenna_dbi - WIFI_MCS[0][0] + 3 * p.wifi_shadow_sigma_db
+    return float(10 ** ((budget - p.wifi_pl1m_db) / (10 * p.wifi_ple)))
+
+
+def ble_discovery_s(p: RadioParams, rng: random.Random) -> float:
+    """Advertisements until one lands in the peer's scan window."""
+    k = 1
+    while rng.random() >= p.ble_scan_duty:
+        k += 1
+    return k * p.ble_adv_interval_s
 
 
 def channel(link: Link, frame: bytes, params: RadioParams, rng: random.Random) -> bytes | None:

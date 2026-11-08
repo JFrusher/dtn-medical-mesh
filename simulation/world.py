@@ -36,9 +36,12 @@ from simulation.radio_model import (
     DutyCycle,
     Link,
     RadioParams,
+    ble_discovery_s,
     channel,
     lora_airtime_s,
-    transfer_s,
+    wifi_mean_rx_dbm,
+    wifi_rate,
+    wifi_reach_m,
 )
 from simulation.scheduler import Scheduler
 from simulation.virtual_hw import Battery, SeededEntropy, SoftwareSecureElement, VirtualRtc
@@ -138,10 +141,7 @@ class World:
         node.up = False
         for pair, link in self.links.items():
             if node.id in pair and link.up:
-                link.up = False
-                link.generation += 1
-                link.busy_until.clear()
-                self.contacts.discard(pair)
+                self._drop(pair)
                 (other,) = pair - {node.id}
                 self.dispatch(
                     self.nodes[other], partial(ContactDown, peer_id=node.id, radio=RadioKind.WIFI)
@@ -241,9 +241,9 @@ class World:
         if link is None or not link.up:
             self.lost_frames += 1
             return
-        start = max(self.scheduler.now, link.busy_until.get(src, 0.0))
-        done = start + transfer_s(len(action.frame), self.radio)
-        link.busy_until[src] = done
+        start = max(self.scheduler.now, link.busy_until)
+        done = start + len(action.frame) * self._sharing(src, action.peer_id) / link.rate
+        link.busy_until = done
         generation = link.generation
 
         def arrive() -> None:
@@ -275,29 +275,62 @@ class World:
                 self.scheduler.after(airtime, partial(self.dispatch, self.nodes[node_id], heard))
         self.lora_log.append((self.scheduler.now, src))
 
-    def _in_range(self, a: str, b: str) -> bool:
-        return math.dist(self.position(a), self.position(b)) <= self.radio.wifi_range_m
+    def _update_rate(self, link: Link, a: str, b: str) -> None:
+        """Received power from path loss and this pass's shadowing sets the link's goodput."""
+        r = self.radio
+        d = math.dist(self.position(a), self.position(b))
+        if d > wifi_reach_m(r):
+            link.shadow_db, link.rate = None, 0.0  # a fresh draw on the next approach
+            return
+        if link.shadow_db is None:
+            sigma = r.wifi_shadow_sigma_db
+            link.shadow_db = max(-3 * sigma, min(3 * sigma, self.scheduler.rng.gauss(0, sigma)))
+        link.rate = wifi_rate(wifi_mean_rx_dbm(d, r) - link.shadow_db, r)
+
+    def _sharing(self, a: str, b: str) -> int:
+        """Contacts whose midpoints are within carrier-sense range share one channel."""
+
+        def mid(x: str, y: str) -> tuple[float, float]:
+            (x1, y1), (x2, y2) = self.position(x), self.position(y)
+            return ((x1 + x2) / 2, (y1 + y2) / 2)
+
+        here = mid(a, b)
+        return max(
+            1,
+            sum(
+                math.dist(here, mid(*sorted(p))) <= self.radio.wifi_cs_range_m
+                for p in self.contacts
+            ),
+        )
+
+    def _drop(self, pair: frozenset[str]) -> None:
+        link = self.links[pair]
+        link.up = False
+        link.generation += 1
+        link.busy_until = 0.0
+        self.contacts.discard(pair)
 
     def _tick(self) -> None:
         for a, b in combinations(sorted(n for n, node in self.nodes.items() if node.up), 2):
             pair = frozenset((a, b))
             link = self.links.setdefault(pair, Link())
-            if self._in_range(a, b):
+            self._update_rate(link, a, b)
+            if link.rate:
                 if not link.up and pair not in self._connecting:
                     self._connecting.add(pair)
-                    self.scheduler.after(self.radio.wifi_setup_s, partial(self._link_up, a, b))
+                    delay = ble_discovery_s(self.radio, self.scheduler.rng) + self.radio.wifi_join_s
+                    self.scheduler.after(delay, partial(self._link_up, a, b))
             elif link.up:
-                link.up = False
-                link.generation += 1
-                link.busy_until.clear()
-                self.contacts.discard(pair)
+                self._drop(pair)
                 self._notify_contact(ContactDown, a, b)
         self.scheduler.after(self.tick_s, self._tick)
 
     def _link_up(self, a: str, b: str) -> None:
         pair = frozenset((a, b))
         self._connecting.discard(pair)
-        if not self._in_range(a, b) or not (self.nodes[a].up and self.nodes[b].up):
+        link = self.links[pair]
+        self._update_rate(link, a, b)
+        if not link.rate or not (self.nodes[a].up and self.nodes[b].up):
             return  # drove out of range, or lost power, before the link came up
         self.links[pair].up = True
         self.contacts.add(pair)
