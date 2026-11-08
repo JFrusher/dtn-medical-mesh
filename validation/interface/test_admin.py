@@ -85,3 +85,15 @@ def test_spare_relay_provisioned_from_the_console_joins_and_reports(sim: LiveSim
     run_minutes(sim, 30)
     nodes = {n["id"]: n for n in api.get("/api/admin", headers=h).json()["nodes"]}
     assert nodes["SPARE_RELAY"]["role"] == "relay" and nodes["SPARE_RELAY"]["version"] == "0.2.0"
+
+
+@pytest.mark.req("REQ-OPS-05")
+def test_console_stages_an_update_and_watches_versions_change(sim: LiveSim) -> None:
+    api = TestClient(create_app(sim))
+    h = admin(api)
+    bad = api.post("/api/admin/actions", headers=h, json={"action": "stage_update", "target": "x"})
+    assert bad.status_code == 422
+    api.post("/api/admin/actions", headers=h, json={"action": "stage_update", "target": "all"})
+    run_minutes(sim, 120)
+    versions = {n["id"]: n["version"] for n in api.get("/api/admin", headers=h).json()["nodes"]}
+    assert set(versions.values()) == {"0.3.0"}, versions

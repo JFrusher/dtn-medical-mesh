@@ -20,16 +20,26 @@ from endpoint.directory import DirectoryEntry, directory_body
 from endpoint.keystore import KeyStore
 from endpoint.state import Status
 from node.core import NodeConfig
-from node.events import PublishDirectory, Revoke
+from node.events import PublishDirectory, Revoke, StageUpdate
 from node.pki import Role
+from node.update import encode_manifest
 from simulation.mobility import Static
 from simulation.provision import provision_one
 from simulation.runner import RunResult
+from simulation.updates import ALL_ROLES, make_release
 from simulation.virtual_hw import SIM_EPOCH, SeededEntropy
 
 OPERATORS = ["Admin F. Mbise"]  # fictional
 NOT_SEEN_S = 6 * 3600  # a node is "not seen recently" when its newest report is older
-ACTIONS = ("revoke", "remove_laptop", "publish_directory", "provision_relay", "provision_mule")
+ACTIONS = (
+    "revoke",
+    "remove_laptop",
+    "publish_directory",
+    "provision_relay",
+    "provision_mule",
+    "stage_update",
+)
+STAGES = {"relay": ("relay",), "relay,mule": ("relay", "mule"), "all": ALL_ROLES}
 
 
 @dataclass(frozen=True)
@@ -60,6 +70,8 @@ class Admin:
         self.keys: dict[str, EndpointKeys] = {}  # unlocked operators
         self.log: list[LogEntry] = []
         self.removed: set[str] = set()  # laptops taken out of the directory
+        # a release prepared and signed offline, ready for the operator to stage
+        self.release = make_release(result.world.scheduler.seed, "0.3.0", "0.2.0")
 
     def sign_in(self, operator: str, pin: str) -> None:
         self.keys[operator] = self.store.unlock(operator, pin, time.monotonic())
@@ -79,6 +91,17 @@ class Admin:
             self.publish()
         elif action == "publish_directory":
             self.publish()
+        elif action == "stage_update":
+            if target not in STAGES:
+                raise ValueError(f"stage one of {sorted(STAGES)}")
+            manifest, payload = self.release
+            stage = partial(
+                StageUpdate,
+                manifest=encode_manifest(manifest),
+                payload=payload,
+                stage=STAGES[target],
+            )
+            w.dispatch(self.hub, stage)
         else:
             role = Role.RELAY if action == "provision_relay" else Role.MULE
             if not target or target in w.nodes:

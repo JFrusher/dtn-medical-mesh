@@ -56,6 +56,16 @@ class HealthTick(EventBase):
     battery_pct: float | None
     temp_c: float | None
     version: str
+    external_power: bool  # mains, solar in daylight, or the vehicle's engine running
+
+
+@dataclass(frozen=True, kw_only=True)
+class StageUpdate(EventBase):
+    """Operator at a hub rolls a release-signed update out to `stage` (spec §9.5)."""
+
+    manifest: bytes
+    payload: bytes
+    stage: tuple[str, ...]
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -97,6 +107,7 @@ Event = (
     | EndpointAck
     | Revoke
     | PublishDirectory
+    | StageUpdate
 )
 
 # --- Actions ----------------------------------------------------------------
@@ -159,4 +170,14 @@ class DirectoryUpdate:
     issuer: bytes
 
 
-Action = SendFrame | Store | Delete | SetTimer | Deliver | Delivered | DirectoryUpdate | Emit
+@dataclass(frozen=True, kw_only=True)
+class Install:
+    """Write the verified payload to the spare A/B slot and reboot into it on probation."""
+
+    version: str
+    payload: bytes
+
+
+Action = (
+    SendFrame | Store | Delete | SetTimer | Deliver | Delivered | DirectoryUpdate | Emit | Install
+)

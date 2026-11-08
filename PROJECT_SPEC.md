@@ -524,6 +524,7 @@ Decisions made while turning the original design chat into this spec:
 | Free compute, exact vehicle loops | **Per-operation CPU/storage time; noisy schedules (night stops, breakdowns); on-foot couriers** (P8) | Arusha vans now park 20:00-06:00: 82/93 delivered in 24 h (was 89/93), zero silent loss. |
 | Arusha relay power | **10 W panel, 77 Wh LiFePO4** per §11.1 (P8) | The earlier 6 W / 30 Wh was below the spec's own hardware. |
 | Health summaries as TELEMETRY bundles (§9.3) | **Node-signed health reports, newest per node**, passed on after everything else in a contact (P11) | Relays and mules cannot inject bundles, and only each node's latest state matters. |
+| Update payload as a ROUTINE bundle (§9.5) | **Content-addressed package** (SHA-256 named in the release-signed manifest), passed on last in each contact (P11) | Nodes cannot open endpoint-sealed bundles; the manifest's hash already makes the payload self-verifying. |
 
 ## 18. Open questions
 1. ~~AEAD choice~~ (decided: XChaCha20-Poly1305).

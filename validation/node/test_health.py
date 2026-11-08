@@ -10,7 +10,9 @@ from simulation.runner import run
 from simulation.scenario import load_scenario
 from validation.node.helpers import connect, frame, make_node
 
-TICK = HealthTick(mono=1, wall=None, battery_pct=80.0, temp_c=31.5, version="0.2.0")
+TICK = HealthTick(
+    mono=1, wall=None, battery_pct=80.0, temp_c=31.5, version="0.2.0", external_power=True
+)
 
 
 @pytest.mark.req("REQ-OPS-01")

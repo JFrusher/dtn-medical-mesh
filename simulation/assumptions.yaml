@@ -69,6 +69,8 @@ power:
   ghi_dec: {value: 5.95, unit: kWh/m2/day, source: published, ref: "NASA POWER, as ghi_jan"}
 node:
   health_every_s: {value: 900, unit: s, source: estimate, ref: "spec §9.3: health report every 15 min, configurable"}
+  probation_s: {value: 600, unit: s, source: estimate, ref: "spec §9.5: a new version must report healthy within 10 min or the bootloader rolls back"}
+  update_bytes: {value: 2000000, unit: B, source: estimate, ref: "size of a node software update (a Python wheel set, compressed)"}
 environment:
   ambient_min_c: {value: 14, unit: °C, source: estimate, ref: "Arusha night-time low, typical"}
   ambient_max_c: {value: 27, unit: °C, source: estimate, ref: "Arusha afternoon high, typical (peak 15:00)"}

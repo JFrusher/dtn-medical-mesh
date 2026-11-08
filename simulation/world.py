@@ -23,6 +23,7 @@ from node.events import (
     Event,
     FrameReceived,
     HealthTick,
+    Install,
     PowerLow,
     SendFrame,
     SetTimer,
@@ -147,6 +148,7 @@ class World:
         self._profiles = profiles()
         self.busy_s: dict[str, float] = defaultdict(float)  # CPU and storage time per node
         self.min_battery_pct: dict[str, float] = defaultdict(lambda: 100.0)
+        self.broken_versions: set[str] = set()  # emulated: releases whose daemon fails to start
         self.flash_written: dict[str, int] = defaultdict(int)  # bytes to flash, for wear
         self.flash_per_min: dict[str, dict[int, int]] = defaultdict(lambda: defaultdict(int))
         self.log: LogFn = log or (lambda t, msg: None)
@@ -227,9 +229,14 @@ class World:
         if node.up:
             battery = round(node.battery.pct, 1) if node.battery else None
             temp = round(enclosure_c(self.scheduler.now, node.config.role is Role.RELAY), 1)
-            self.dispatch(
-                node, partial(HealthTick, battery_pct=battery, temp_c=temp, version=node.version)
+            tick = partial(
+                HealthTick,
+                battery_pct=battery,
+                temp_c=temp,
+                version=node.version,
+                external_power=node.external_power,
             )
+            self.dispatch(node, tick)
         self.scheduler.after(group("node")["health_every_s"], partial(self._health, node_id))
 
     def position(self, node_id: str) -> tuple[float, float]:
@@ -306,6 +313,26 @@ class World:
                     node.on_directory(action.doc, action.issuer)
             case Emit():
                 pass
+            case Install():
+                self.scheduler.after(0, partial(self._install, node, action.version))
+
+    def _install(self, node: SimNode, version: str) -> None:
+        """A/B update: reboot into the new slot on probation. A version in `broken_versions`
+        never reports healthy, so after probation the bootloader returns to the old slot."""
+        previous = node.version
+        self.log(self.scheduler.now, f"INSTALL {node.id} {previous} -> {version}")
+        self.power_off(node)
+        node.version = version
+        if version not in self.broken_versions:
+            self.power_on(node)
+            return
+
+        def rollback() -> None:
+            node.version = previous
+            self.log(self.scheduler.now, f"ROLLBACK {node.id} {version} -> {previous}")
+            self.power_on(node)
+
+        self.scheduler.after(group("node")["probation_s"], rollback)
 
     def _transmit(self, src: str, action: SendFrame) -> None:
         if action.radio is RadioKind.LORA:

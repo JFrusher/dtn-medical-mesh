@@ -207,5 +207,6 @@
   "light.red": "fault",
   "time.min_ago": "{m} min ago",
   "time.h_ago": "{h} h ago",
-  "admin.no_arrivals": "Nothing has reached the hospital yet."
+  "admin.no_arrivals": "Nothing has reached the hospital yet.",
+  "admin.do.stage_update": "Stage update 0.3.0 (target: relay, relay,mule or all)"
 }

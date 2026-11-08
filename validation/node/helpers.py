@@ -83,6 +83,7 @@ def summary_from(
         "certs": [],
         "docs": {},
         "health": {},
+        "pkgs": [],
         "prophet": {},
         "from": encode_cert(me.cert),
         "issuer": encode_cert(me.issuer) if me.issuer else None,
@@ -107,6 +108,7 @@ def inject(node: NodeCore, shards: list[Shard]) -> list[Action]:
 NOW = int(SIM_EPOCH)
 TEST_ROOT = SoftwareSecureElement(SeededEntropy("test-root"))
 TEST_HUB_SE = SoftwareSecureElement(SeededEntropy("test-hub"))
+TEST_RELEASE = SoftwareSecureElement(SeededEntropy("test-release"))
 TEST_HUB = issue(
     TEST_ROOT.sign, ROOT, "H", Role.HUB, "SA_H", TEST_HUB_SE.public_key(), NOW, HUB_CERT_LIFETIME_S
 )
@@ -119,10 +121,12 @@ def node_se(node_id: str) -> SoftwareSecureElement:
 
 def identity(node_id: str, role: Role, sa: str | None) -> Identity:
     if node_id == "H":
-        return Identity(TEST_HUB, None, TEST_ROOT.public_key(), TEST_HUB_SE.sign)
+        return Identity(
+            TEST_HUB, None, TEST_ROOT.public_key(), TEST_HUB_SE.sign, TEST_RELEASE.public_key()
+        )
     se = node_se(node_id)
     cert = issue(TEST_HUB_SE.sign, TEST_HUB.cert_id, node_id, role, sa, se.public_key(), NOW)
-    return Identity(cert, TEST_HUB, TEST_ROOT.public_key(), se.sign)
+    return Identity(cert, TEST_HUB, TEST_ROOT.public_key(), se.sign, TEST_RELEASE.public_key())
 
 
 def make_node(

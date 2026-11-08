@@ -43,11 +43,13 @@ from node.events import (
     FrameReceived,
     HealthTick,
     Inject,
+    Install,
     PowerLow,
     PublishDirectory,
     Revoke,
     SendFrame,
     SetTimer,
+    StageUpdate,
     Store,
     Timer,
 )
@@ -71,6 +73,7 @@ from node.pki import (
 )
 from node.routing import Router, peer_table
 from node.summary import Bloom
+from node.update import Manifest, decode_manifest, parse_stage, stage_body, version_key
 
 T_SHARDS = "shards"
 T_ACKS = "acks"
@@ -84,6 +87,7 @@ T_LEDGER = "ledger"  # receipts this node issued, hash-chained, keyed by sequenc
 T_OUTBOX = "receipt_outbox"  # issued receipts not yet handed to their sender
 T_RECEIPTS_IN = "receipts_in"  # receipts others gave this node, for audit
 T_HEALTH = "health"  # the newest health report from each node, keyed by node ID
+T_PKG = "packages"  # software update payloads, keyed by SHA-256
 RECEIPT_BATCH_S = 0.5
 LORA_MAX_FRAME = 200  # one LoRa frame (§8.10)
 LORA_KINDS = frozenset({"ack", "receipt", "doc"})  # control only: never shards or summaries
@@ -189,6 +193,9 @@ class NodeCore:
         hub_seen = meta.get(b"hub_seen")
         self.hub_seen_s = int.from_bytes(hub_seen) / 1000 if hub_seen else None
         self._battery_pct: float | None = None  # from the last health tick
+        self.pkgs: dict[bytes, bytes] = dict(records.get(T_PKG, {}))
+        self.peer_pkgs: dict[str, set[bytes]] = {}
+        self.tried = {k[6:].decode() for k in meta if k.startswith(b"tried:")}  # installs started
 
     def handle(self, event: Event) -> list[Action]:
         self._mono = event.mono
@@ -236,6 +243,7 @@ class NodeCore:
                     self.peer_sa,
                     self.peer_table,
                     self.peer_health,
+                    self.peer_pkgs,
                 ):
                     table.pop(event.peer_id, None)
                 return self._issue_receipt(event.peer_id)  # anything owed goes to the outbox
@@ -259,7 +267,9 @@ class NodeCore:
                 exact = {"t": "exact", "ids": sorted(self.shards), "acks": sorted(self.acks)}
                 return [self._send(peer_id, exact)]
             case HealthTick():
-                return self._report(event)
+                return self._report(event) + self._maybe_install(event)
+            case StageUpdate():
+                return self._stage_update(event)
             case Revoke():
                 return self._revoke(event.subject)
             case PublishDirectory():
@@ -313,6 +323,7 @@ class NodeCore:
                 if not isinstance(health, dict):
                     raise FormatError("summary health must be a map")
                 self.peer_health[peer_id] = {str(k): int(v) for k, v in health.items()}
+                self.peer_pkgs[peer_id] = {_bytes(h) for h in msg["pkgs"]}
                 if peer_cert.role is Role.HUB:
                     self.hub_seen_s = self.clock_s
                     ms = int(self.clock_s * 1000).to_bytes(8)
@@ -349,6 +360,8 @@ class NodeCore:
                 return self._on_ack(decode_ack(_bytes(msg["a"])), source=peer_id)
             if kind == "health":
                 return self._on_health(decode_report(_bytes(msg["r"])))
+            if kind == "pkg":
+                return self._on_pkg(_bytes(msg["d"]))
             raise FormatError(f"unknown frame type {kind!r}")
         except (FormatError, KeyError, TypeError, cbor2.CBORDecodeError):
             self.dropped["malformed"] += 1
@@ -362,6 +375,7 @@ class NodeCore:
             "certs": sorted(self.certs),
             "docs": {k: d.seq for k, d in sorted(self.docs.items())},
             "health": {k: r.seq for k, r in sorted(self.health.items())},
+            "pkgs": sorted(self.pkgs),
             "prophet": {sa: round(p, 4) for sa, p in sorted(self.router.p.items())},
         }
         issuer = self.identity.issuer
@@ -491,7 +505,7 @@ class NodeCore:
             self._send(peer_id, {"t": "shard", "s": encode_shard(s), "age": self._age_ms(s)})
             for s in missing
         ]
-        return actions + self._health_for(peer_id)
+        return actions + self._health_for(peer_id) + self._pkgs_for(peer_id)
 
     def _docs_for(self, peer_id: str) -> list[Action]:
         known = self.peer_docs.setdefault(peer_id, {})
@@ -573,6 +587,63 @@ class NodeCore:
             out.append(self._send(peer_id, {"t": "health", "r": encode_report(r)}))
         return out
 
+    # --- software updates (spec §9.5) ----------------------------------------
+
+    def _updates(self) -> list[tuple[Manifest, tuple[str, ...]]]:
+        return [parse_stage(d.body) for d in self.docs.values() if d.kind == "update"]
+
+    def _stage_update(self, event: StageUpdate) -> list[Action]:
+        manifest = decode_manifest(event.manifest)
+        if not (
+            manifest.authentic(self.identity.release_pubkey) and manifest.matches(event.payload)
+        ):
+            raise ValueError("update is not signed by the release key or its payload differs")
+        self.pkgs[manifest.payload_hash] = event.payload
+        store = Store(table=T_PKG, key=manifest.payload_hash, value=event.payload)
+        return [store, *self._publish("update", stage_body(manifest, event.stage))]
+
+    def _on_pkg(self, data: bytes) -> list[Action]:
+        h = hashlib.sha256(data).digest()
+        if h in self.pkgs:
+            return []
+        if not any(m.payload_hash == h and m.matches(data) for m, _ in self._updates()):
+            self.dropped["bad_pkg"] += 1
+            return []
+        self.pkgs[h] = data
+        return [Store(table=T_PKG, key=h, value=data)]
+
+    def _pkgs_for(self, peer_id: str) -> list[Action]:
+        """Last of all: payloads of current updates that the peer lacks."""
+        known = self.peer_pkgs.setdefault(peer_id, set())
+        wanted = {m.payload_hash for m, _ in self._updates()}
+        out: list[Action] = []
+        for h in sorted(wanted & set(self.pkgs) - known):
+            known.add(h)
+            out.append(self._send(peer_id, {"t": "pkg", "d": self.pkgs[h]}))
+        return out
+
+    def _maybe_install(self, tick: HealthTick) -> list[Action]:
+        """Install only with the verified payload, on external power, with no contact open."""
+        if not tick.external_power or self.peer_bloom:
+            return []
+        running = version_key(tick.version)
+        ready = [
+            m
+            for m, stage in self._updates()
+            if self.config.role.value in stage
+            and version_key(m.version) > running >= version_key(m.min_version)
+            and m.payload_hash in self.pkgs
+            and m.version not in self.tried
+        ]
+        if not ready:
+            return []
+        m = max(ready, key=lambda x: version_key(x.version))
+        self.tried.add(m.version)  # recorded first: a version that fails is never retried
+        return [
+            Store(table=T_META, key=b"tried:" + m.version.encode(), value=b"1"),
+            Install(version=m.version, payload=self.pkgs[m.payload_hash]),
+        ]
+
     def _revoke(self, subject: str) -> list[Action]:
         current = self.docs.get(f"crl:{self.identity.cert.cert_id}")
         subjects = set(revoked_subjects(current)) if current else set()
@@ -593,13 +664,18 @@ class NodeCore:
         if not doc_authentic(doc, issuer, root, int(self.clock_s), self.certs, self.revoked):
             self.dropped["bad_doc"] += 1
             return []
+        if doc.kind == "update":
+            manifest, _ = parse_stage(doc.body)
+            if not manifest.authentic(self.identity.release_pubkey):
+                self.dropped["bad_update"] += 1  # a hub cannot push software on its own
+                return []
         self.docs[doc.key] = doc
         actions: list[Action] = [Store(table=T_DOCS, key=doc.key.encode(), value=encode_doc(doc))]
         if doc.kind == "crl":
             self.revoked = self._revoked()
             self._verified_headers.clear()  # re-check every injector against the new list
             actions += self._lora({"t": "doc", "d": encode_doc(doc)})
-        elif self.config.sa is not None and issuer is not None:
+        elif doc.kind == "dir" and self.config.sa is not None and issuer is not None:
             actions.append(DirectoryUpdate(doc=encode_doc(doc), issuer=encode_cert(issuer)))
         for peer in sorted(self.peer_has):
             actions += self._offer(peer)
@@ -917,7 +993,9 @@ def _held(sid: bytes, has: set[bytes], bloom: Bloom) -> bool:
 
 
 def _summary_signing_bytes(msg: Mapping[str, object]) -> bytes:
-    body = cbor2.dumps([msg["bloom"], msg["certs"], msg["docs"], msg["health"], msg["prophet"]])
+    body = cbor2.dumps(
+        [msg["bloom"], msg["certs"], msg["docs"], msg["health"], msg["pkgs"], msg["prophet"]]
+    )
     return _SUMMARY_CONTEXT + cbor2.dumps([msg["from"], msg["to"], msg["hlc"], body])
 
 
