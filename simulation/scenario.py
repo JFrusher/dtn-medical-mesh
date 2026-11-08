@@ -65,6 +65,7 @@ class Scenario:
     messages: tuple[MessageSpec, ...]
     faults: tuple[FaultSpec, ...] = ()
     geo: LatLon | None = None  # origin; when set, the file's coordinates are [lat, lon]
+    parity: dict[Priority, int] = field(default_factory=dict)  # override m per priority
     terrain: str | None = None  # simulation/geo/<terrain>/: elevation and clutter grids
     overrides: dict[str, float] = field(default_factory=dict)  # "group.name" -> value
 

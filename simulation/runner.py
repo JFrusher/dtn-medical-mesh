@@ -7,6 +7,7 @@ from dataclasses import dataclass, replace
 from functools import partial
 from pathlib import Path
 
+from node.config import PRIORITY_CLASSES
 from simulation import faults
 from simulation.compute import board
 from simulation.endpoints import VirtualEndpoint
@@ -65,9 +66,15 @@ def build(scenario: Scenario, seed: int, data_dir: Path, echo: bool = False) -> 
     unregistered = frozenset(s.config.node_id for s in scenario.nodes if not s.registered)
     root = provision(list(world.nodes.values()), seed, unregistered)
     world.start()
+    classes = {p: replace(c, m=scenario.parity.get(p, c.m)) for p, c in PRIORITY_CLASSES.items()}
     endpoints = {
         e.name: VirtualEndpoint(
-            e.name, world.nodes[e.node], world, SeededEntropy(f"{seed}:{e.name}"), root.public_key()
+            e.name,
+            world.nodes[e.node],
+            world,
+            SeededEntropy(f"{seed}:{e.name}"),
+            root.public_key(),
+            classes=classes,
         )
         for e in scenario.endpoints
     }

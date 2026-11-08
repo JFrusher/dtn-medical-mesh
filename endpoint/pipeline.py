@@ -1,10 +1,12 @@
 """Endpoint send/receive pipeline (spec §5.2): sign -> seal -> pad -> shard -> header, and back."""
 
+from collections.abc import Mapping
+
 from endpoint.crypto import EndpointKeys, Opened, open_sealed, seal
 from endpoint.padding import pad, unpad
 from node import erasure, merkle
 from node.bundle import Bundle, Header, Priority, Shard, make_bundle_id
-from node.config import PRIORITY_CLASSES
+from node.config import PRIORITY_CLASSES, PriorityClass
 from node.hw.entropy import Entropy
 
 
@@ -18,10 +20,11 @@ def build_shards(
     dst_sa: str,
     priority: Priority,
     created: int,
+    classes: Mapping[Priority, PriorityClass] = PRIORITY_CLASSES,
 ) -> list[Shard]:
     """The site node fills in `injector` and signs the header when it receives the shards."""
     padded = pad(seal(content, recipient, author, entropy))
-    cls = PRIORITY_CLASSES[priority]
+    cls = classes[priority]
     blocks = erasure.encode(padded, cls.k, cls.m)
     root, proofs = merkle.build(blocks)
     header = Header(

@@ -1,5 +1,6 @@
 """Virtual endpoints (clinic/hospital laptops) attached to site nodes in the simulation."""
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from functools import partial
@@ -11,6 +12,7 @@ from endpoint.fhir import Message
 from endpoint.pipeline import build_shards, open_delivered
 from endpoint.state import Outgoing, Status
 from node.bundle import Priority, decode_bundle, encode_shard
+from node.config import PRIORITY_CLASSES, PriorityClass
 from node.events import EndpointAck, Inject
 from simulation.virtual_hw import SIM_EPOCH, SeededEntropy
 from simulation.world import SimNode, World
@@ -41,6 +43,7 @@ class VirtualEndpoint:
     inbox: list["Received"] = field(default_factory=list)
     pending: list[tuple[bytes, ...]] = field(default_factory=list)  # site node was down
     sent_content: dict[bytes, tuple[bytes, Priority, float]] = field(default_factory=dict)
+    classes: Mapping[Priority, PriorityClass] = field(default_factory=lambda: PRIORITY_CLASSES)
 
     def __post_init__(self) -> None:
         if self.site.config.sa is None:
@@ -68,6 +71,7 @@ class VirtualEndpoint:
             dst_sa=entry.sa,
             priority=priority,
             created=int((SIM_EPOCH + self.world.scheduler.now) * 1000),  # wall-clock ms
+            classes=self.classes,
         )
         encoded = tuple(encode_shard(s) for s in shards)
         if self.site.up:
