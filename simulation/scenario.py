@@ -14,7 +14,7 @@ from node.pki import Role
 from simulation.faults import FaultSpec
 from simulation.geo import LatLon, to_metres
 from simulation.hostile import ATTACKS
-from simulation.mobility import Mobility, Route, Static
+from simulation.mobility import DAYS, Mobility, Route, Schedule, Static, Walk
 from simulation.radio_model import RadioParams
 from simulation.virtual_hw import Battery
 
@@ -132,7 +132,7 @@ def _node(raw: dict[str, Any], point: Callable[[list[float]], tuple[float, float
     _keys(
         raw,
         f"node {raw.get('id')}",
-        {"id", "role", "sa", "at", "route", "power", "hostile", "capacity_mb"},
+        {"id", "role", "sa", "at", "route", "walk", "power", "hostile", "capacity_mb"},
     )
     hostile = raw.get("hostile") or {}
     _keys(hostile, f"hostile of {raw['id']}", {"attacks", "registered"})
@@ -147,20 +147,53 @@ def _node(raw: dict[str, Any], point: Callable[[list[float]], tuple[float, float
     config = NodeConfig(raw["id"], Role(raw["role"]), raw.get("sa"))
     if "capacity_mb" in raw:
         config = replace(config, capacity_bytes=int(float(raw["capacity_mb"]) * 1024 * 1024))
-    if ("at" in raw) == ("route" in raw):
-        raise ValueError(f"node {raw['id']}: give exactly one of 'at' or 'route'")
+    if sum(k in raw for k in ("at", "route", "walk")) != 1:
+        raise ValueError(f"node {raw['id']}: give exactly one of 'at', 'route' or 'walk'")
     if "at" in raw:
         return NodeSpec(config, Static(point(raw["at"])), battery, attacks, registered)
+    if "walk" in raw:
+        w = raw["walk"]
+        _keys(w, f"walk of {raw['id']}", {"places", "speed", "dwell_s"})
+        lo, hi = w["dwell_s"]
+        walk = Walk(tuple(point(p) for p in w["places"]), float(w["speed"]), (float(lo), float(hi)))
+        return NodeSpec(config, walk, battery, attacks, registered)
     r = raw["route"]
-    _keys(r, f"route of {raw['id']}", {"waypoints", "speed", "dwell_s", "start_s", "stops"})
+    _keys(
+        r,
+        f"route of {raw['id']}",
+        {"waypoints", "speed", "dwell_s", "start_s", "stops", "schedule"},
+    )
     mobility = Route(
         waypoints=tuple(point(p) for p in r["waypoints"]),
         speed=float(r["speed"]),
         dwell_s=float(r.get("dwell_s", 0)),
         start_s=float(r.get("start_s", 0)),
         stops=tuple(int(i) for i in r["stops"]) if "stops" in r else None,
+        schedule=_schedule(r["schedule"], raw["id"]) if "schedule" in r else None,
     )
     return NodeSpec(config, mobility, battery, attacks, registered)
+
+
+def _schedule(raw: dict[str, Any], node_id: str) -> Schedule:
+    _keys(
+        raw,
+        f"schedule of {node_id}",
+        {"every_s", "jitter_s", "traffic", "skip_p", "breakdown_p", "repair_s", "night", "days"},
+    )
+    night = raw.get("night")
+    days = raw.get("days")
+    if days is not None and set(days) - set(DAYS):
+        raise ValueError(f"schedule of {node_id}: days must be among {DAYS}")
+    return Schedule(
+        every_s=float(raw["every_s"]) if "every_s" in raw else None,
+        jitter_s=float(raw.get("jitter_s", 0)),
+        traffic=float(raw.get("traffic", 0)),
+        skip_p=float(raw.get("skip_p", 0)),
+        breakdown_p=float(raw.get("breakdown_p", 0)),
+        repair_s=float(raw.get("repair_s", 0)),
+        night=(float(night[0]), float(night[1])) if night else None,
+        days=frozenset(DAYS.index(d) for d in days) if days is not None else None,
+    )
 
 
 def _endpoint(raw: dict[str, Any], node_ids: set[str]) -> EndpointSpec:

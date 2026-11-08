@@ -45,8 +45,16 @@ class Terrain:
         cells = meta["cols"] * meta["rows"]
         if len(elevation) != cells or len(clutter) != cells:
             raise ValueError(f"terrain {name}: grid size does not match terrain.json")
-        return cls((meta["origin"][0], meta["origin"][1]), meta["x0"], meta["y0"],
-                   meta["cell_m"], meta["cols"], meta["rows"], elevation, clutter)  # fmt: skip
+        return cls(
+            (meta["origin"][0], meta["origin"][1]),
+            meta["x0"],
+            meta["y0"],
+            meta["cell_m"],
+            meta["cols"],
+            meta["rows"],
+            elevation,
+            clutter,
+        )
 
     def _cell(self, p: Point) -> int:
         c = int((p[0] - self.x0) // self.cell_m)
@@ -62,9 +70,14 @@ class Terrain:
         return self.clutter[self._cell(p)] / 255
 
     def loss_db(
-        self, a: Point, b: Point, ha_m: float, hb_m: float, wavelength_m: float,
+        self,
+        a: Point,
+        b: Point,
+        ha_m: float,
+        hb_m: float,
+        wavelength_m: float,
         clutter_db_per_100m: float,
-    ) -> float:  # fmt: skip
+    ) -> float:
         """Extra loss beyond free-space-style path loss: worst knife edge plus clutter."""
         d = math.dist(a, b)
         steps = int(d // (self.cell_m / 2))

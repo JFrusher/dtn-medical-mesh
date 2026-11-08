@@ -478,6 +478,7 @@ nodes:
     speed: 11
     dwell_s: 600
     start_s: 300
+    schedule: {jitter_s: 600, traffic: 0.2, breakdown_p: 0.01, repair_s: 3600}
 - id: VAN_WEST
   role: mule
   route:
@@ -1303,6 +1304,14 @@ nodes:
     speed: 10
     dwell_s: 900
     start_s: 0
+    schedule:
+      jitter_s: 1200
+      traffic: 0.3
+      skip_p: 0.05
+      breakdown_p: 0.02
+      repair_s: 7200
+      night: [20, 6]
+      days: [mon, tue, wed, thu, fri, sat]
 - id: VAN_EAST
   role: mule
   route:
@@ -2022,6 +2031,14 @@ nodes:
     speed: 12
     dwell_s: 900
     start_s: 1200
+    schedule:
+      jitter_s: 1200
+      traffic: 0.3
+      skip_p: 0.05
+      breakdown_p: 0.02
+      repair_s: 7200
+      night: [20, 6]
+      days: [mon, tue, wed, thu, fri, sat]
 - id: OUTREACH_BIKE
   role: mule
   route:
@@ -2643,6 +2660,20 @@ nodes:
     speed: 8
     dwell_s: 1200
     start_s: 600
+    schedule:
+      jitter_s: 900
+      traffic: 0.2
+      skip_p: 0.1
+      night: [19, 7]
+- id: HEALTH_WORKER
+  role: mule
+  walk:
+    places:
+    - [-3.41846, 36.65715]
+    - [-3.433, 36.646]
+    - [-3.405, 36.643]
+    speed: 1.2
+    dwell_s: [1200, 3600]
 - id: LIGHT_MOSHI_ROAD
   role: relay
   at: [-3.375985, 36.745585]

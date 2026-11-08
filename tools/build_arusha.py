@@ -14,6 +14,7 @@ simulation/geo/arusha/ (elevation and building clutter grids). Run one stage wit
 """
 
 import array
+import copy
 import gzip
 import io
 import json
@@ -59,6 +60,26 @@ VEHICLES = {  # id: (stops in order, speed m/s, dwell s, start s)
     "VAN_WEST": (["HOSPITAL", "KISONGO", "NGARAMTONI"], 10, 900, 0),
     "VAN_EAST": (["HOSPITAL", "USA_RIVER"], 12, 900, 1200),
     "OUTREACH_BIKE": (["MURIETI", "KISONGO"], 8, 1200, 600),
+}
+# Noise on each vehicle's rounds (estimates until a partner shares real schedules).
+VAN = {
+    "jitter_s": 1200,
+    "traffic": 0.3,
+    "skip_p": 0.05,
+    "breakdown_p": 0.02,
+    "repair_s": 7200,
+    "night": [20, 6],
+    "days": ["mon", "tue", "wed", "thu", "fri", "sat"],
+}
+SCHEDULES = {
+    "AMBULANCE": {"jitter_s": 600, "traffic": 0.2, "breakdown_p": 0.01, "repair_s": 3600},
+    "VAN_WEST": copy.deepcopy(VAN),  # copies: YAML writes shared objects as anchors
+    "VAN_EAST": copy.deepcopy(VAN),
+    "OUTREACH_BIKE": {"jitter_s": 900, "traffic": 0.2, "skip_p": 0.1, "night": [19, 7]},
+}
+# On foot: a community health worker between Murieti and two villages ~2 km away (illustrative).
+WALKERS = {
+    "HEALTH_WORKER": [SITES["MURIETI"][2], (-3.43300, 36.64600), (-3.40500, 36.64300)],
 }
 RELAYS = {  # solar street lights part-way along a vehicle's road: (vehicle, fraction of path)
     "LIGHT_MOSHI_ROAD": ("VAN_EAST", 0.22),
@@ -180,8 +201,12 @@ def scenario() -> None:
             "speed": speed,
             "dwell_s": dwell,
             "start_s": start,
+            "schedule": SCHEDULES[vid],
         }
         nodes.append({"id": vid, "role": "mule", "route": route})
+    for wid, places in WALKERS.items():
+        walk = {"places": [list(p) for p in places], "speed": 1.2, "dwell_s": [1200, 3600]}
+        nodes.append({"id": wid, "role": "mule", "walk": walk})
     for rid, (vid, frac) in RELAYS.items():
         at = paths[vid][int(len(paths[vid]) * frac)]
         nodes.append(

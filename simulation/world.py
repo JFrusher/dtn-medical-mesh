@@ -339,12 +339,20 @@ class World:
         if self.terrain is None:
             return 0.0
         r = self.radio
-        height = {Role.HUB: r.antenna_hub_m, Role.SITE: r.antenna_site_m,
-                  Role.RELAY: r.antenna_relay_m, Role.MULE: r.antenna_mule_m}  # fmt: skip
+        height = {
+            Role.HUB: r.antenna_hub_m,
+            Role.SITE: r.antenna_site_m,
+            Role.RELAY: r.antenna_relay_m,
+            Role.MULE: r.antenna_mule_m,
+        }
         return self.terrain.loss_db(
-            self.position(a), self.position(b), height[self.nodes[a].config.role],
-            height[self.nodes[b].config.role], wavelength_m, r.clutter_db_per_100m,
-        )  # fmt: skip
+            self.position(a),
+            self.position(b),
+            height[self.nodes[a].config.role],
+            height[self.nodes[b].config.role],
+            wavelength_m,
+            r.clutter_db_per_100m,
+        )
 
     def _sharing(self, a: str, b: str) -> int:
         """Contacts whose midpoints are within carrier-sense range share one channel."""
