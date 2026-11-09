@@ -1,6 +1,6 @@
 # Software of unknown provenance (SOUP)
 
-Third-party runtime software (IEC 62304 §8.1.2). Versions are the locked ones in `uv.lock`; `validation/test_docs.py` fails if this list and the lock file disagree. Development-only tools (pytest, ruff, mypy, hypothesis, playwright, httpx) are not part of the product and are not listed.
+Third-party runtime software (IEC 62304 §8.1.2). Versions are the locked ones in `uv.lock`; `validation/test_docs.py` fails if the runtime table and the lock file disagree; the vendored front-end and data table below is checked by hand. Development-only tools (pytest, ruff, mypy, hypothesis, playwright, httpx) are not part of the product and are not listed.
 
 | Package | Version | Purpose | Safety relevance | Failure we guard against |
 |---|---|---|---|---|

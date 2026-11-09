@@ -122,7 +122,8 @@ def run_job(job: Job) -> tuple[list[dict[str, Any]], dict[str, Any]]:
                         "priority": prio.name,
                         "sent_s": round(sent_at, 1),
                         "status": status,
-                        "latency_s": round(opened[bid] - sent_at, 1) if delivered else "",
+                        # a delivered message missing from the inbox is a violation evaluate reports
+                        "latency_s": round(opened[bid] - sent_at, 1) if bid in opened else "",
                     }
                 )
         roles = {n.config.node_id: n.config.role.value for n in scenario.nodes}

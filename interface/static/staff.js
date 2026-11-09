@@ -15,6 +15,8 @@ export class Staff {
     this.token = null; this.staff = null; this.tab = null; this.msgs = []; this.patients = [];
     this.count = 0; this.onChange = () => {};
     document.addEventListener("languagechange", () => this.render());
+    // only real use holds off the idle lock: background polls say whether anyone touched the app
+    for (const ev of ["keydown", "pointerdown"]) root.addEventListener(ev, () => { this.active = true; });
     setInterval(() => this.token && this.refresh(), 2000);
     this.render();
   }
@@ -23,9 +25,11 @@ export class Staff {
 
   async api(path, body, method = body ? "POST" : "GET") {
     const r = await fetch(`/api/endpoints/${this.place}/${path}`, {
-      method, headers: { "content-type": "application/json", authorization: `Bearer ${this.token}` },
+      method, headers: { "content-type": "application/json", authorization: `Bearer ${this.token}`,
+        "x-active": this.active ? "1" : "0" },
       body: body && JSON.stringify(body),
     });
+    this.active = false;
     if (r.status === 401) { this.lock(t("signin.timed_out")); throw new Error("locked"); }
     return r;
   }

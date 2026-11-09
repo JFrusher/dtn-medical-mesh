@@ -20,7 +20,10 @@ def test_readme_and_ui_exclude_emergency_use() -> None:
     assert json.loads((ROOT / "interface/static/i18n/en.json").read_text())["banner"].startswith(
         "Not for emergencies"
     )
-    assert all(c["banner"] for c in catalogues)  # every language carries the warning
+    warning = {"English": "Not for emergencies", "Kiswahili": "Si kwa dharura"}
+    assert {c["_meta"]["language"] for c in catalogues} == set(warning)
+    for c in catalogues:  # every language carries the warning, in its own words
+        assert c["banner"].startswith(warning[c["_meta"]["language"]])
     assert "Not certified" in readme
 
 

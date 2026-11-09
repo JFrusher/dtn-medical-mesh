@@ -132,15 +132,17 @@ def create_app(backend: Backend) -> FastAPI:
     app = FastAPI(title="dtn-medical-mesh", lifespan=lifespan)
     sessions: dict[str, Session] = {}
 
-    def session(name: str, authorization: str | None) -> Session:
-        """The signed-in staff member for this endpoint, or 401 (the app shows sign-in)."""
+    def session(name: str, authorization: str | None, active: bool = True) -> Session:
+        """The signed-in staff member for this endpoint, or 401 (the app shows sign-in).
+        Background polls pass active=False so they never hold off the idle lock."""
         token = (authorization or "").removeprefix("Bearer ")
         s = sessions.get(token)
         now = time.monotonic()
         if s is None or s.endpoint != name or now - s.last_used > IDLE_LOCK_S:
             sessions.pop(token, None)
             raise HTTPException(status_code=401, detail="sign in")
-        s.last_used = now
+        if active:
+            s.last_used = now
         return s
 
     app.mount("/static", StaticFiles(directory=STATIC), name="static")
@@ -167,8 +169,10 @@ def create_app(backend: Backend) -> FastAPI:
         return {"token": token, "operator": body.operator}
 
     @app.get("/api/admin")
-    async def admin_state(authorization: str | None = Header(None)) -> dict[str, Any]:
-        session(ADMIN, authorization)
+    async def admin_state(
+        authorization: str | None = Header(None), x_active: str | None = Header(None)
+    ) -> dict[str, Any]:
+        session(ADMIN, authorization, x_active == "1")
         return backend.admin_state()
 
     @app.post("/api/admin/actions")
@@ -209,8 +213,10 @@ def create_app(backend: Backend) -> FastAPI:
         return {"ok": "true"}
 
     @app.get("/api/endpoints/{name}/messages")
-    async def messages(name: str, authorization: str | None = Header(None)) -> list[dict[str, Any]]:
-        session(_known(backend, name), authorization)
+    async def messages(
+        name: str, authorization: str | None = Header(None), x_active: str | None = Header(None)
+    ) -> list[dict[str, Any]]:
+        session(_known(backend, name), authorization, x_active == "1")
         return backend.messages(name)
 
     @app.post("/api/endpoints/{name}/messages")
@@ -227,8 +233,10 @@ def create_app(backend: Backend) -> FastAPI:
             raise HTTPException(status_code=422, detail=str(e)) from e
 
     @app.get("/api/endpoints/{name}/patients")
-    async def patients(name: str, authorization: str | None = Header(None)) -> list[dict[str, Any]]:
-        session(_known(backend, name), authorization)
+    async def patients(
+        name: str, authorization: str | None = Header(None), x_active: str | None = Header(None)
+    ) -> list[dict[str, Any]]:
+        session(_known(backend, name), authorization, x_active == "1")
         return backend.patients(name)
 
     @app.post("/api/endpoints/{name}/patients")

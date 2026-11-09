@@ -85,7 +85,7 @@ def build(scenario: Scenario, seed: int, data_dir: Path, echo: bool = False) -> 
         try:
             endpoints[m.sender].send_message(m.recipient, m.message(), m.priority)
         except NotInDirectory:
-            log(scheduler.now, f"REFUSED {m.sender}: laptop removed from the directory")
+            log(scheduler.now, f"REFUSED {m.sender} -> {m.recipient}: not in the directory")
             return
         log(scheduler.now, f"SENT {m.sender} -> {m.recipient} ({m.priority.name})")
 

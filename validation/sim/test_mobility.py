@@ -104,3 +104,15 @@ endpoints: [{name: h, node: H}]
     with pytest.raises(ScenarioError, match="days"):
         load_scenario(str(f))
     assert replace(v, seed="x").seed == "x"
+
+
+@pytest.mark.req("REQ-SIM-02")
+def test_walker_is_reproducible_from_its_seed() -> None:
+    places = ((0.0, 0.0), (1200.0, 0.0), (0.0, 1200.0))
+    times = range(0, 20_000, 7)
+
+    def walk(seed: str) -> list[tuple[float, float]]:
+        w = Walk(places, speed=1.2, dwell_s=(60, 600), seed=seed)
+        return [w.position(t) for t in times]
+
+    assert walk("w") == walk("w") != walk("x")

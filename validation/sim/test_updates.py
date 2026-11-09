@@ -88,3 +88,25 @@ def test_a_hub_cannot_push_software_the_release_key_did_not_sign() -> None:
     assert relay.dropped["bad_update"] == 1
     with pytest.raises(ValueError):
         stage_body(manifest, ("satellite",))  # a stage can only name signed roles
+
+
+@pytest.mark.req("REQ-OPS-05")
+def test_battery_relay_stays_down_through_probation_then_reboots_on_the_old_version(
+    tmp_path: Path,
+) -> None:
+    f = tmp_path / "solar.yaml"
+    spec = "{id: RELAY, role: relay, at: [1500, 60]"
+    f.write_text(LINE.replace(spec, spec + ", power: {kind: solar, capacity_wh: 77, panel_w: 10}"))
+    r = build(load_scenario(str(f)), 1, tmp_path / "run")
+    r.world.broken_versions.add("0.3.0")
+    stage(r, ("relay",))
+    relay = r.world.nodes["RELAY"]
+    w = r.world
+    while not any("INSTALL RELAY" in line for line in r.log):
+        assert w.scheduler.now < 12 * 3600, "relay never installed"
+        w.scheduler.run_until(w.scheduler.now + 60)
+    installed = w.scheduler.now
+    w.scheduler.run_until(installed + 540)  # power ticks run every 60 s; it must stay down
+    assert not relay.up and relay.on_probation
+    w.scheduler.run_until(installed + 700)
+    assert relay.up and relay.version == "0.2.0" and not relay.on_probation

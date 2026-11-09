@@ -239,5 +239,15 @@ def decode(data: bytes) -> Message:
             decision=decision,
             result=result,
         )
-    except (KeyError, IndexError, TypeError, AttributeError, cbor2.CBORDecodeError) as e:
+    except FhirError:
+        raise
+    except (
+        KeyError,
+        IndexError,
+        TypeError,
+        AttributeError,
+        ValueError,
+        StopIteration,
+        cbor2.CBORDecodeError,
+    ) as e:
         raise FhirError(f"malformed FHIR-lite message: {e}") from e

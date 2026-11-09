@@ -21,8 +21,16 @@ def load(path: Path = PATH) -> dict[str, Assumption]:
     """All assumptions keyed "group.name". Fails on a missing field or an unknown source."""
     out: dict[str, Assumption] = {}
     for group, entries in yaml.safe_load(path.read_text()).items():
+        if not isinstance(entries, dict):
+            raise ValueError(f"assumption group {group}: must be a mapping")
         for name, a in entries.items():
-            if set(a) != {"value", "unit", "source", "ref"} or a["source"] not in SOURCES:
+            numeric = isinstance(a, dict) and isinstance(a.get("value"), int | float)
+            if (
+                not numeric
+                or isinstance(a["value"], bool)
+                or set(a) != {"value", "unit", "source", "ref"}
+                or a["source"] not in SOURCES
+            ):
                 raise ValueError(f"assumption {group}.{name}: needs value, unit, source, ref")
             out[f"{group}.{name}"] = Assumption(a["value"], str(a["unit"]), a["source"], a["ref"])
     return out

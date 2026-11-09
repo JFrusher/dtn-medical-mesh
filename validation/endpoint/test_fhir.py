@@ -77,3 +77,13 @@ def test_patient_holds_only_the_four_identifiers() -> None:
 def test_unknown_vital_rejected_both_ways() -> None:
     with pytest.raises(FhirError):
         encode(Message("x", vitals=(Vital("mood", 3),)), "t")
+
+
+def test_malformed_patient_is_a_fhir_error_not_a_crash() -> None:
+    good = cbor2.loads(encode(MSG, "t"))
+    for broken in ([], [{"url": "age", "valueAge": {"value": "old", "unit": "a"}}]):
+        bad = {**good, "entry": [dict(e) for e in good["entry"]]}
+        patient = next(e for e in bad["entry"] if e["resourceType"] == "Patient")
+        patient["extension"] = broken
+        with pytest.raises(FhirError, match="malformed"):
+            decode(cbor2.dumps(bad))

@@ -12,22 +12,28 @@
   and overall delivery fell from 85 % to 74 % within the day. It is the one vehicle the network
   cannot lose; a second vehicle on the Murieti road is the first thing to add.
 - **The relays, the motorbike and the health worker on foot made no measurable difference** in
-  this layout. The street-light relays sit on roads the vans already drive, and the motorbike
-  and the walker serve clinics the ambulance and vans also reach. They are cheap resilience
-  (for a breakdown or a skipped round), not capacity.
+  this layout: across all messages, delivery within 4 h and the median and 90th-percentile times
+  stay inside each other's intervals. (The critical-within-2-hours figures, 93 % with relays and
+  100 % without, rest on 30 messages each and their intervals overlap: seed noise, not an effect.)
+  The street-light relays sit on roads the vans already drive, and the motorbike and the walker
+  serve clinics the ambulance and vans also reach. They are cheap resilience (for a breakdown or
+  a skipped round), not capacity.
 - **Twice the message volume changed nothing but storage**, which doubled to 3.4 MB on the
   busiest vehicle: far inside a 32 GB card. More parity for critical and urgent messages gave no
   measurable gain here either; the network is limited by when vehicles meet, not by losses.
-- **Radio range matters.** With a worse path-loss exponent (3.4, about 60 m instead of 90 m)
-  critical referrals within 2 hours fell from 93 % to 77 %. Measuring real range in H1, and
-  mounting antennas well, is worth more than more relays.
+- **Radio range matters.** With a worse path-loss exponent (3.4, about 60 m instead of 90 m),
+  messages delivered within 4 h fell from 78 % (76–80) to 69 % (66–72) and the median time rose
+  from 1.7 to 2.2 hours, with intervals that do not overlap. The critical-within-2-hours drop
+  (93 % to 77 %) points the same way but its intervals overlap. Measuring real range in H1, and
+  mounting antennas well, looks worth more than more relays.
 - **About 15 % of each day's messages are still travelling when the day ends**, mostly ones
   written in the evening after the vans have parked (20:00–06:00). None is lost: each is still
   held at its clinic and goes out with the morning round, as the invariant check confirms
   (0 violations in 80 runs).
-- **Power and storage are not constraints at these volumes.** The relays' lowest charge was
-  94 % in January. June has 30 % less sun (4.4 vs 6.3 kWh/m²/day), giving about 33 Wh a day
-  from a 10 W panel against about 17 Wh of idle draw, so they should still hold; the sweep should
+- **Power and storage are not constraints at these volumes.** The relays (Pi Zero 2 W boards,
+  §11.1) had a lowest charge of 94 % in January. June has 30 % less sun (4.4 vs 6.3 kWh/m²/day),
+  giving about 33 Wh a day from a 10 W panel against the Zero 2 W's 17 Wh of idle draw
+  (0.7 W × 24 h) plus brief transfers at 2 W, so they should still hold; the sweep should
   be re-run for June before the pilot. Flash wear projects to thousands of years for message
   storage alone.
 - **Overhead is high in relative terms** (about 47 bytes moved per byte delivered) because the

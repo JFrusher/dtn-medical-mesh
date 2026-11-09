@@ -102,7 +102,7 @@ _INJECT_CONTEXT = b"dtn-medical-mesh/v1/inject"
 
 
 class NotInDirectory(ValueError):
-    """The laptop's key is not in this site's current directory: it may not inject (spec §9.6)."""
+    """A laptop or recipient is not in the current directory (spec §9.6): the send is refused."""
 
 
 def inject_signing_bytes(shards: tuple[bytes, ...]) -> bytes:
@@ -325,7 +325,7 @@ class NodeCore:
                 table = peer_table(msg["prophet"])
                 self.peer_table[peer_id] = table
                 self.router.encounter(peer_cert.sa, table, self.clock_s)
-                remember = Store(table=T_META, key=b"router", value=self.router.encode())
+                remember = [Store(table=T_META, key=b"router", value=self.router.encode())]
                 self.peer_has[peer_id] = set()
                 self.peer_acks[peer_id] = set()
                 self.peer_certs[peer_id] = {str(i) for i in msg["certs"]}
@@ -341,11 +341,11 @@ class NodeCore:
                 if peer_cert.role is Role.HUB:
                     self.hub_seen_s = self.clock_s
                     ms = int(self.clock_s * 1000).to_bytes(8)
-                    remember = Store(table=T_META, key=b"hub_seen", value=ms)
+                    remember.append(Store(table=T_META, key=b"hub_seen", value=ms))
                 follow_up = SetTimer(name=f"exact:{peer_id}", at_mono=self._mono + EXACT_AFTER_S)
                 return [
                     follow_up,
-                    remember,
+                    *remember,
                     *self._pay_receipts_owed(peer_id),
                     *self._renew(peer_id, peer_cert),
                     *self._offer(peer_id),

@@ -109,3 +109,13 @@ def test_console_stages_an_update_and_watches_versions_change(sim: LiveSim) -> N
     run_minutes(sim, 120)
     versions = {n["id"]: n["version"] for n in api.get("/api/admin", headers=h).json()["nodes"]}
     assert set(versions.values()) == {"0.3.0"}, versions
+
+
+@pytest.mark.req("REQ-OPS-03")
+def test_actions_are_refused_and_not_logged_while_the_hub_is_down(sim: LiveSim) -> None:
+    api = TestClient(create_app(sim))
+    h = admin(api)
+    sim.r.world.power_off(sim.admin.hub)
+    r = api.post("/api/admin/actions", headers=h, json={"action": "revoke", "target": "CLINIC_01"})
+    assert r.status_code == 422 and "powered off" in r.json()["detail"]
+    assert sim.admin.log == [] and sim.admin.removed == set()

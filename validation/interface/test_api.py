@@ -195,3 +195,41 @@ def test_clinic_registers_patients(sim: LiveSim) -> None:
     bad = {**new, "local_id": "CLI-0101", "sex": "f"}
     assert api.post("/api/endpoints/clinic/patients", headers=h, json=bad).status_code == 422
     assert new in api.get("/api/endpoints/clinic/patients", headers=h).json()
+
+
+@pytest.mark.req("REQ-SEC-14")
+def test_background_polling_does_not_hold_off_the_idle_lock(
+    sim: LiveSim, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    api = TestClient(create_app(sim))
+    h = sign_in(api, "clinic")
+    start = time.monotonic()
+    for step in range(1, 4):  # the app polls; nobody touches it
+        monkeypatch.setattr(time, "monotonic", lambda s=step: start + s * IDLE_LOCK_S / 4)
+        assert (
+            api.get("/api/endpoints/clinic/messages", headers={**h, "x-active": "0"}).status_code
+            == 200
+        )
+    monkeypatch.setattr(time, "monotonic", lambda: start + IDLE_LOCK_S + 1)
+    assert (
+        api.get("/api/endpoints/clinic/messages", headers={**h, "x-active": "0"}).status_code == 401
+    )
+    h = sign_in(api, "clinic")  # with someone typing, each poll counts as use
+    for step in range(1, 5):
+        t = start + IDLE_LOCK_S + 1 + step * IDLE_LOCK_S / 2
+        monkeypatch.setattr(time, "monotonic", lambda t=t: t)
+        assert (
+            api.get("/api/endpoints/clinic/messages", headers={**h, "x-active": "1"}).status_code
+            == 200
+        )
+
+
+def test_send_to_a_recipient_no_longer_in_the_directory_is_refused(sim: LiveSim) -> None:
+    api = TestClient(create_app(sim))
+    sim.r.endpoints["clinic"].directory.pop("hospital")
+    r = api.post(
+        "/api/endpoints/clinic/messages",
+        headers=sign_in(api, "clinic"),
+        json={"to": "hospital", "text": "x"},
+    )
+    assert r.status_code == 422

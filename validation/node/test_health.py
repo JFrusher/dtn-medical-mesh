@@ -1,14 +1,16 @@
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
 
-from node.core import T_HEALTH
-from node.events import HealthTick
+from node.bundle import FormatError
+from node.core import T_HEALTH, T_META
+from node.events import HealthTick, Store
 from node.health import decode_report, encode_report
 from node.pki import Role
 from simulation.runner import run
 from simulation.scenario import load_scenario
-from validation.node.helpers import connect, frame, make_node
+from validation.node.helpers import connect, frame, make_node, summary_from
 
 TICK = HealthTick(
     mono=1, wall=None, battery_pct=80.0, temp_c=31.5, version="0.2.0", external_power=True
@@ -49,3 +51,24 @@ def test_every_node_reports_to_the_hub_over_the_mesh(tmp_path: Path) -> None:
     clinic = hub.health["CLINIC_01"]
     assert clinic.seq >= 2 and clinic.version == "0.2.0" and clinic.temp_c is not None
     assert clinic.battery_pct is None  # mains powered
+
+
+def test_reports_with_impossible_values_are_malformed() -> None:
+    mule = make_node("M", Role.MULE, None)
+    mule.handle(TICK)
+    good = mule.health["M"]
+    for bad in (
+        replace(good, capacity_bytes=0),
+        replace(good, light="purple"),
+        replace(good, temp_c="hot"),  # type: ignore[arg-type]
+    ):
+        with pytest.raises(FormatError):
+            decode_report(encode_report(bad))
+
+
+def test_meeting_a_hub_persists_both_the_router_and_the_hub_contact() -> None:
+    mule = make_node("M", Role.MULE, None)
+    connect(mule, "H")
+    actions = frame(mule, "H", summary_from("H", "M"))
+    keys = {a.key for a in actions if isinstance(a, Store) and a.table == T_META}
+    assert {b"router", b"hub_seen"} <= keys

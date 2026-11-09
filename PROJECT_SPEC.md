@@ -291,8 +291,8 @@ The daemon is the second driver of `NodeCore` (the emulator is the first). It ow
 | Process model | One asyncio process: a radio task per radio, a timer wheel, a storage writer applying actions strictly in order, and a local API task (site nodes only). |
 | Supervision | `systemd` service with `WatchdogSec`; the daemon pings the watchdog only after a full event loop turn, so a hung radio driver causes a restart. |
 | Configuration | `/etc/satchel/node.toml`: role, service area, radio band and power, capacity, status-light pins. Signed by the hub when issued at provisioning; the daemon refuses an unsigned config. |
-| Logs | Structured JSON lines to a small ring buffer on disk (no clinical content ever exists on a node to leak). Summaries travel as `TELEMETRY` bundles. |
-| Health telemetry | Every 15 min (assumption, configurable): battery, temperature, storage use, contacts seen, refusals, software version. Lowest priority, evicted first. |
+| Logs | Structured JSON lines to a small ring buffer on disk (no clinical content ever exists on a node to leak). Health is reported as below, not logs. |
+| Health telemetry | Every 15 min (assumption, configurable): battery, temperature, storage use, contacts seen, refusals, software version, status light. A report signed by the node; every node keeps only the newest per node and passes it on after everything else in a contact, so it reaches the hub (decision log). |
 | Status light | One RGB LED, readable by crews at a glance (§11.4). |
 
 ### 9.4 Provisioning, replacement and decommissioning
@@ -303,7 +303,7 @@ The daemon is the second driver of `NodeCore` (the emulator is the first). It ow
 5. **Endpoint laptops** are provisioned the same way: the laptop generates its endpoint keys, the hub adds them to the signed directory; a lost laptop is removed from the directory and its keys never receive new messages.
 
 ### 9.5 Signed software updates over the mesh
-- **Package.** The hub publishes an update as a hub document (§7.6) of kind `update`: version, target roles, minimum current version, payload hash and size. The payload itself travels as a normal `ROUTINE` bundle addressed to every service area, erasure-coded like any message.
+- **Package.** The hub publishes an update as a hub document (§7.6) of kind `update`: version, target roles, minimum current version, payload hash and size. The payload itself travels as a content-addressed package (its SHA-256 is in the manifest), passed on after everything else in a contact (decision log).
 - **Authority.** Updates must be signed by a dedicated **release key** held offline next to the root CA, not by a hub's operational key, so a compromised hub cannot push software.
 - **Install.** A node installs only when it holds the complete, verified payload, is on external power, and has no transfer in progress. A/B partitions: the new version boots once on probation; if the daemon fails to report healthy within 10 min (assumption), the bootloader rolls back automatically.
 - **Pacing.** Updates never displace clinical traffic: lowest priority after `TELEMETRY`, and the hub can stage rollouts (relays first, then mules, then sites).

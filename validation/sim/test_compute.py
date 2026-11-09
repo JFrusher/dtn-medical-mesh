@@ -77,3 +77,22 @@ def test_report_projects_card_life(tmp_path: Path) -> None:
     mule = report.flash["AMBULANCE_01"]
     assert mule["mb_per_day"] > 0 and mule["peak_kb_per_s"] > 0 and mule["life_years"] > 1
     assert "Projected card life" in report.to_markdown()
+
+
+def test_flash_wear_counts_only_writes_that_happened(tmp_path: Path) -> None:
+    s = Scheduler(seed=1)
+    w = World(s, tmp_path)
+    hub = w.add_node(NodeConfig("HUB", Role.HUB, "SA_H"), Static((0, 0)))
+    provision(list(w.nodes.values()), seed=1)
+    w.start()
+    s.run_until(1)
+    before = w.flash_written[hub.id]
+
+    def one_write(event: object) -> list[Action]:
+        return [Store(table="t", key=b"k", value=b"x")]
+
+    hub.core.handle = one_write  # type: ignore[method-assign]
+    w.dispatch(hub, PowerLow)
+    w.power_off(hub)  # before the commit lands
+    s.run_until(2)
+    assert w.flash_written[hub.id] == before

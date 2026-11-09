@@ -112,6 +112,8 @@ class Battery:
     def __post_init__(self) -> None:
         if self.kind not in ("solar", "vehicle"):
             raise ValueError(f"unknown power kind {self.kind!r}")
+        if self.idle_w <= 0 or self.capacity_wh <= 0:
+            raise ValueError("idle_w and capacity_wh must be positive")
         if self.level_wh < 0:
             self.level_wh = self.capacity_wh
 

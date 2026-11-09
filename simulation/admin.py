@@ -79,6 +79,8 @@ class Admin:
     def act(self, operator: str, action: str, target: str) -> None:
         if action not in ACTIONS:
             raise ValueError(f"unknown action {action!r}")
+        if not self.hub.up:
+            raise ValueError("the hub is powered off: nothing was done or logged")
         w = self.r.world
         if action == "revoke":
             if target not in w.nodes or target == self.hub.id:

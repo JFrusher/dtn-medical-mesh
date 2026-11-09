@@ -92,6 +92,7 @@ class SimNode:
     external_power: bool = True
     busy_until: float = 0.0  # virtual time its current work finishes (spec §12.2 compute)
     version: str = VERSION  # software running (the active A/B slot)
+    on_probation: bool = False  # a broken update is crash-looping until rollback
     node_toml: str = ""  # the signed config written at provisioning; boot refuses anything else
 
     def boot(self, now: float) -> None:
@@ -214,7 +215,7 @@ class World:
             self.min_battery_pct[node.id] = min(self.min_battery_pct[node.id], b.pct)
             if node.up and b.level_wh <= 0:
                 self.power_off(node)
-            elif not node.up and b.pct >= POWER_ON_PCT:
+            elif not node.up and not node.on_probation and b.pct >= POWER_ON_PCT:
                 self.power_on(node)
         self.scheduler.after(dt, self._power_tick)
 
@@ -272,14 +273,14 @@ class World:
         )
         node.busy_until = max(now, node.busy_until) + cost
         self.busy_s[node.id] += cost
-        written = flash_bytes(actions)
-        if written:
-            self.flash_written[node.id] += written
-            self.flash_per_min[node.id][int(now // 60)] += written
         boot = node.boots
 
         def take_effect() -> None:
             if node.up and node.boots == boot:  # a power cut while busy loses the work
+                written = flash_bytes(actions)  # counted only for writes that happened
+                if written:
+                    self.flash_written[node.id] += written
+                    self.flash_per_min[node.id][int(self.scheduler.now // 60)] += written
                 for action in actions:
                     self._apply(node, action)
 
@@ -331,8 +332,10 @@ class World:
         if version not in self.broken_versions:
             self.power_on(node)
             return
+        node.on_probation = True  # crash-looping: no reboot until the bootloader rolls back
 
         def rollback() -> None:
+            node.on_probation = False
             node.version = previous
             self.log(self.scheduler.now, f"ROLLBACK {node.id} {version} -> {previous}")
             self.power_on(node)

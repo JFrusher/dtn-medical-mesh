@@ -13,6 +13,7 @@ from node.bundle import FormatError
 from node.pki import Signer
 
 _CONTEXT = b"dtn-medical-mesh/v1/health"
+LIGHTS = ("green", "blue", "blue-flash", "amber", "red")  # spec §11.4
 FIELDS = (
     "node", "signer", "seq", "at_ms", "version", "battery_pct", "temp_c", "used_bytes",
     "capacity_bytes", "contacts", "refusals", "light",
@@ -54,8 +55,16 @@ def decode_report(data: bytes) -> HealthReport:
             raise FormatError("bad health report")
         r = HealthReport(*values)
         ints = (r.seq, r.at_ms, r.used_bytes, r.capacity_bytes, r.contacts)
+        optional = (r.battery_pct, r.temp_c)
         if not (
-            isinstance(r.node, str)
+            r.capacity_bytes > 0
+            and isinstance(r.version, str)
+            and r.light in LIGHTS
+            and all(
+                v is None or (isinstance(v, int | float) and not isinstance(v, bool))
+                for v in optional
+            )
+            and isinstance(r.node, str)
             and isinstance(r.signer, str)
             and all(isinstance(i, int) and i >= 0 for i in ints)
             and isinstance(r.refusals, dict)

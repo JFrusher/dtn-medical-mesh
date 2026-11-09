@@ -58,13 +58,17 @@ def bootstrap(
 
 def load(out: Path) -> tuple[dict[str, list[Msg]], dict[str, list[dict[str, str]]]]:
     msgs: dict[str, list[Msg]] = defaultdict(list)
-    for r in csv.DictReader((out / "messages.csv").open()):
+    with (out / "messages.csv").open(newline="") as f:
+        message_rows = list(csv.DictReader(f))
+    for r in message_rows:
         lat = float(r["latency_s"]) if r["latency_s"] else None
         msgs[r["variant"]].append(
             Msg(int(r["seed"]), r["priority"], float(r["sent_s"]), r["status"], lat)
         )
     runs: dict[str, list[dict[str, str]]] = defaultdict(list)
-    for r in csv.DictReader((out / "runs.csv").open()):
+    with (out / "runs.csv").open(newline="") as f:
+        run_rows = list(csv.DictReader(f))
+    for r in run_rows:
         runs[r["variant"]].append(r)
     return msgs, runs
 

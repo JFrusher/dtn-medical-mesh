@@ -8,6 +8,7 @@ export class Admin {
   constructor(root, who) {
     this.root = root; this.who = who; this.token = null; this.operator = null;
     document.addEventListener("languagechange", () => this.render());
+    for (const ev of ["keydown", "pointerdown"]) root.addEventListener(ev, () => { this.active = true; });
     setInterval(() => this.token && this.refresh(), 3000);
     this.render();
   }
@@ -15,9 +16,11 @@ export class Admin {
   async call(path, body) {
     const r = await fetch(`/api/admin${path}`, {
       method: body ? "POST" : "GET",
-      headers: { "content-type": "application/json", authorization: `Bearer ${this.token}` },
+      headers: { "content-type": "application/json", authorization: `Bearer ${this.token}`,
+        "x-active": this.active ? "1" : "0" },
       body: body && JSON.stringify(body),
     });
+    this.active = false;
     if (r.status === 401) { this.token = null; this.why = t("signin.timed_out"); this.render(); throw new Error("locked"); }
     return r;
   }

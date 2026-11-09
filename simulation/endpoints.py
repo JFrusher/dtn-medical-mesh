@@ -62,6 +62,8 @@ class VirtualEndpoint:
         return self.send(to, fhir.encode(message, sent_at), priority)
 
     def send(self, to: str, content: bytes, priority: Priority) -> bytes:
+        if to not in self.directory:
+            raise NotInDirectory(f"{to} is not in {self.name}'s directory")
         entry = self.directory[to]
         site_sa = self.site.config.sa
         assert site_sa is not None  # checked in __post_init__

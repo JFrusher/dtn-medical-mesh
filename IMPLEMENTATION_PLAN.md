@@ -4,7 +4,7 @@ Companion to [`PROJECT_SPEC.md`](PROJECT_SPEC.md). Section references (§) point
 
 ## Status
 
-**Phases 0–7 are implemented and merged. Phases 8–11 are implemented:** pilot-grade emulation, pilot sizing ([docs/sizing/arusha.md](docs/sizing/arusha.md)), the staff app, and the admin console with node software. Hardware phases H1/H2 follow. Hardware phases H1/H2 come after.
+**Phases 0–7 are implemented and merged. Phases 8–11 are implemented:** pilot-grade emulation, pilot sizing ([docs/sizing/arusha.md](docs/sizing/arusha.md)), the staff app, and the admin console with node software. Hardware phases H1/H2 follow.
 
 ## How to use this plan
 
@@ -233,11 +233,11 @@ Same rules as above: one commit per step, a verify command, requirement tags. Ne
 
 | ID | Step | Files | Verify |
 |---|---|---|---|
-| P11.S01 | Health telemetry bundles from every node (battery, temperature, storage, contacts, refusals, version). | `node/core.py`, tests | `uv run pytest validation/node/test_health.py` |
+| P11.S01 | Signed health reports from every node, newest per node passed on last in a contact (battery, temperature, storage, contacts, refusals, version). | `node/core.py`, tests | `uv run pytest validation/node/test_health.py` |
 | P11.S02 | Admin console: inventory, last seen, battery, storage, refusals by reason, delivery times per clinic. | `interface/static/admin.*`, `interface/app.py`, tests | UI test |
 | P11.S03 | Provision / revoke / publish directory from the console, signed by the operator's hub credential and logged. | interface, `node/pki.py`, tests | UI test + emulated revocation spreads |
 | P11.S04 | Signed `node.toml` issued at provisioning; core refuses unsigned config. | `node/pki.py`, tests | unit tests |
-| P11.S05 | Signed software updates: release key, `update` hub document, payload as a bundle, install conditions, staged rollout; emulated A/B with probation and rollback. | `node/`, `simulation/`, tests | `uv run pytest validation/sim/test_updates.py` |
+| P11.S05 | Signed software updates: release key, `update` hub document, payload as a content-addressed package, install conditions, staged rollout; emulated A/B with probation and rollback. | `node/`, `simulation/`, tests | `uv run pytest validation/sim/test_updates.py` |
 | P11.S06 | Status light state machine in the core (healthy, carrying, transferring, amber, red) shown on the map. | `node/core.py`, map, tests | unit + UI test |
 | P11.S07 | Site node as access point for the clinic laptop (spec §9.6): endpoint-key authentication on the API. | `interface/app.py`, tests | API tests |
 
