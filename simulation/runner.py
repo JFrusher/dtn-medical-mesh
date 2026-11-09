@@ -3,17 +3,22 @@
 import argparse
 import sys
 import tempfile
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from functools import partial
 from pathlib import Path
 
+from node.config import PRIORITY_CLASSES
+from node.core import NotInDirectory
 from simulation import faults
+from simulation.compute import board
 from simulation.endpoints import VirtualEndpoint
 from simulation.hostile import HostileCore
 from simulation.metrics import evaluate
+from simulation.mobility import Route, Walk
 from simulation.provision import provision, publish_directory
 from simulation.scenario import MessageSpec, Scenario, load_scenario
 from simulation.scheduler import Scheduler
+from simulation.terrain import Terrain
 from simulation.virtual_hw import Battery, SeededEntropy
 from simulation.world import World
 
@@ -43,25 +48,45 @@ def build(scenario: Scenario, seed: int, data_dir: Path, echo: bool = False) -> 
             print(line)
 
     scheduler = Scheduler(seed)
-    world = World(scheduler, data_dir, scenario.radio, scenario.tick_s, log)
+    terrain = Terrain.load(scenario.terrain) if scenario.terrain else None
+    if terrain and terrain.origin != scenario.geo:
+        raise ValueError(
+            f"terrain {scenario.terrain} is centred on {terrain.origin}, not {scenario.geo}"
+        )
+    world = World(scheduler, data_dir, scenario.radio, scenario.tick_s, log, terrain)
     for spec in scenario.nodes:
-        battery = Battery(**spec.battery) if spec.battery else None
-        node = world.add_node(spec.config, spec.mobility, battery)
+        battery = (
+            Battery.for_board(board(spec.config.role), **spec.battery) if spec.battery else None
+        )
+        mobility = spec.mobility
+        if isinstance(mobility, Route | Walk):  # noisy mobility draws from the run's seed
+            mobility = replace(mobility, seed=f"{seed}:{spec.config.node_id}")
+        node = world.add_node(spec.config, mobility, battery)
         if spec.attacks or not spec.registered:
             node.core_class, node.attacks = HostileCore, spec.attacks
     unregistered = frozenset(s.config.node_id for s in scenario.nodes if not s.registered)
     root = provision(list(world.nodes.values()), seed, unregistered)
     world.start()
+    classes = {p: replace(c, m=scenario.parity.get(p, c.m)) for p, c in PRIORITY_CLASSES.items()}
     endpoints = {
         e.name: VirtualEndpoint(
-            e.name, world.nodes[e.node], world, SeededEntropy(f"{seed}:{e.name}"), root.public_key()
+            e.name,
+            world.nodes[e.node],
+            world,
+            SeededEntropy(f"{seed}:{e.name}"),
+            root.public_key(),
+            classes=classes,
         )
         for e in scenario.endpoints
     }
     publish_directory(world, endpoints)
 
     def send(m: MessageSpec) -> None:
-        endpoints[m.sender].send_message(m.recipient, m.message(), m.priority)
+        try:
+            endpoints[m.sender].send_message(m.recipient, m.message(), m.priority)
+        except NotInDirectory:
+            log(scheduler.now, f"REFUSED {m.sender} -> {m.recipient}: not in the directory")
+            return
         log(scheduler.now, f"SENT {m.sender} -> {m.recipient} ({m.priority.name})")
 
     for m in scenario.messages:

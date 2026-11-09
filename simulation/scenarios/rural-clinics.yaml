@@ -3,7 +3,6 @@
 name: rural-clinics
 duration_s: 259200
 tick_s: 2
-radio: {wifi_range_m: 100}
 nodes:
   - {id: HOSPITAL, role: hub, sa: SA_HOSPITAL, at: [0, 0]}
   - {id: CLINIC_1, role: site, sa: SA_CLINIC_1, at: [12000, 3000]}
@@ -13,26 +12,26 @@ nodes:
   - id: VAN_EAST
     role: mule
     route: {waypoints: [[0, 0], [12000, 3000], [9000, -8000]], speed: 14, dwell_s: 900}
-    power: {kind: vehicle, capacity_wh: 20, load_w: 2}
+    power: {kind: vehicle, capacity_wh: 20}
   - id: VAN_WEST
     role: mule
     route: {waypoints: [[0, 0], [-10000, 6000], [-7000, -9000]], speed: 14, dwell_s: 900, start_s: 1800}
-    power: {kind: vehicle, capacity_wh: 20, load_w: 2}
+    power: {kind: vehicle, capacity_wh: 20}
   - id: AMBULANCE
     role: mule
     route: {waypoints: [[0, 0], [9000, -8000]], speed: 20, dwell_s: 600, start_s: 3600}
   - id: LIGHT_1
     role: relay
     at: [6000, 1500]
-    power: {kind: solar, capacity_wh: 30, load_w: 1, solar_peak_w: 6}
+    power: {kind: solar, capacity_wh: 30, panel_w: 6}
   - id: LIGHT_2
     role: relay
     at: [4500, -4000]
-    power: {kind: solar, capacity_wh: 30, load_w: 1, solar_peak_w: 6}
+    power: {kind: solar, capacity_wh: 30, panel_w: 6}
   - id: LIGHT_3
     role: relay
     at: [-5000, 3000]
-    power: {kind: solar, capacity_wh: 30, load_w: 1, solar_peak_w: 6}
+    power: {kind: solar, capacity_wh: 30, panel_w: 6}
 endpoints:
   - {name: hospital, node: HOSPITAL}
   - {name: clinic-1, node: CLINIC_1}

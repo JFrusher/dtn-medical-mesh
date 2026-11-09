@@ -1,10 +1,10 @@
-# dtn-medical-mesh — Project Specification
+# Satchel (dtn-medical-mesh) — Project Specification
 
 | | |
 |---|---|
-| **Status** | Draft v0.1 — pre-implementation |
+| **Status** | v0.2: emulated implementation complete (phases 0–11): node, staff app, admin console, signed updates and pilot-grade emulation with an Arusha sizing study |
 | **Licence** | Apache 2.0 |
-| **Primary language** | Python 3.11+ (node, emulator, interface) |
+| **Primary language** | Python 3.11+ (node, emulator, servers); TypeScript/JS in the staff app |
 | **Target** | Supervised real-world pilot (~10–30 nodes), reached via simulation → bench → field |
 | **Regulatory posture** | Design-aligned with IEC 62304 / ISO 14971 / UK & EU GDPR Art. 9 / HIPAA §164.312. **Not certified. No compliance is claimed.** |
 
@@ -14,7 +14,7 @@
 
 `dtn-medical-mesh` is an offline-first, **delay-tolerant network (DTN)** that moves encrypted clinical data between health sites that have no reliable internet. It uses the vehicles and people already travelling between those sites as couriers: ambulances, supply vans, outreach staff.
 
-Small, ruggedised Raspberry Pi nodes are mounted wherever it helps: on a clinic table, on an ambulance's back shelf, on a street light. They find each other automatically, swap encrypted shards when they come within radio range, and carry them onward. A messaging-style web app on a laptop is the only thing staff ever touch. Clinic staff write a referral or attach a photo, and some time later the hospital receives it and can reply.
+Small, ruggedised Raspberry Pi nodes are mounted wherever it helps: on a clinic table, on an ambulance's back shelf, on a street light. They find each other automatically, swap encrypted shards when they come within radio range, and carry them onward. A messaging-style web app on a laptop is the only thing staff ever touch; crews just see a status light. Clinic staff write a referral or attach a photo, and some time later the hospital receives it and can reply.
 
 Relay nodes are **blind carriers**. They see the minimum routing metadata needed to move data and never hold keys that could decrypt clinical content.
 
@@ -283,87 +283,157 @@ Endpoint-only crypto (payload encryption and decryption, inner signatures, shard
 - Eviction follows §6.3. Above 95% capacity, refuse incoming shards that would need a forbidden eviction.
 - Power loss: rely on SQLite WAL atomicity plus a UPS HAT that signals the daemon to flush and shut down cleanly (§11.2).
 
-### 9.3 Packaging and operation
-- One installable Python package; the same code runs on every role, with the role set in `/etc/dtn-medical-mesh/node.toml`.
-- Runs as a `systemd` service with automatic restart and a watchdog.
-- Pre-built SD-card image for Pi Zero 2 W and Pi 4/5 (Phase 2).
-- Headless: health is reported as `TELEMETRY` bundles and is visible on the hub map.
+### 9.3 Node daemon (hardware driver)
+The daemon is the second driver of `NodeCore` (the emulator is the first). It owns everything the core may not touch.
 
-## 10. Base station interface (endpoint)
+| Concern | Design |
+|---|---|
+| Process model | One asyncio process: a radio task per radio, a timer wheel, a storage writer applying actions strictly in order, and a local API task (site nodes only). |
+| Supervision | `systemd` service with `WatchdogSec`; the daemon pings the watchdog only after a full event loop turn, so a hung radio driver causes a restart. |
+| Configuration | `/etc/satchel/node.toml`: role, service area, radio band and power, capacity, status-light pins. Signed by the hub when issued at provisioning; the daemon refuses an unsigned config. |
+| Logs | Structured JSON lines to a small ring buffer on disk (no clinical content ever exists on a node to leak). Health is reported as below, not logs. |
+| Health telemetry | Every 15 min (assumption, configurable): battery, temperature, storage use, contacts seen, refusals, software version, status light. A report signed by the node; every node keeps only the newest per node and passes it on after everything else in a contact, so it reaches the hub (decision log). |
+| Status light | One RGB LED, readable by crews at a glance (§11.4). |
 
-### 10.1 Stack
-FastAPI backend and a **messaging-style PWA**. It runs locally on the laptop or tablet and talks to its site node over USB or Ethernet.
+### 9.4 Provisioning, replacement and decommissioning
+1. **Provision at a hub.** The node's secure element generates its key; the admin console (§10.6) issues a certificate binding node ID, role and service area, writes the signed `node.toml`, and records the node in the inventory.
+2. **Replace.** A failed node is revoked and a new one provisioned under a new node ID; shards it held are recovered by redundancy and the origin's retained copy, never by copying its disk.
+3. **Stolen or lost.** The admin revokes it; the revocation list reaches the mesh with top priority (§7.6). Its certificate also expires within 14 days without a hub visit.
+4. **Decommission.** Revoke, then wipe by destroying the secure element's storage key (the SQLCipher store becomes unreadable).
+5. **Endpoint laptops** are provisioned the same way: the laptop generates its endpoint keys, the hub adds them to the signed directory; a lost laptop is removed from the directory and its keys never receive new messages.
 
-### 10.2 UX rules (to avoid "shadow workload")
-- It should feel like a chat app: one conversation per patient or referral, a text box, and an attach button.
-- Sending takes **no more taps than WhatsApp**. Priority defaults to `ROUTINE`, and raising it is one tap.
-- Every message shows a status: *Queued → In transit (n/k shards seen) → Delivered* or **NOT DELIVERED**. It also shows the expected-latency and "no guarantee of timing" indicator (§2.3).
-- Structured vitals have quick-entry forms that map to FHIR `Observation`.
-- No clinical content is ever shown on, or stored by, a non-endpoint node.
+### 9.5 Signed software updates over the mesh
+- **Package.** The hub publishes an update as a hub document (§7.6) of kind `update`: version, target roles, minimum current version, payload hash and size. The payload itself travels as a content-addressed package (its SHA-256 is in the manifest), passed on after everything else in a contact (decision log).
+- **Authority.** Updates must be signed by a dedicated **release key** held offline next to the root CA, not by a hub's operational key, so a compromised hub cannot push software.
+- **Install.** A node installs only when it holds the complete, verified payload, is on external power, and has no transfer in progress. A/B partitions: the new version boots once on probation; if the daemon fails to report healthy within 10 min (assumption), the bootloader rolls back automatically.
+- **Pacing.** Updates never displace clinical traffic: lowest priority after `TELEMETRY`, and the hub can stage rollouts (relays first, then mules, then sites).
+- **Emulation.** The emulator models update spread and the rollback path; the real A/B mechanism is built in hardware phase H1.
 
-### 10.3 Network map
-- A Leaflet (or plain canvas) view **with no basemap or tiles**: nodes plotted on a schematic coordinate plane, so it works fully offline.
-- Shows node role and status, battery, queue depth, active links, shards in flight, and custody and ACK events.
-- Fed by one **telemetry JSON schema**. In the field it comes from `TELEMETRY` bundles and fixed install coordinates. In simulation it comes from the emulator. Same schema, same UI.
+### 9.6 Laptop ⇄ site node link
+The clinic laptop reaches its site node over the node's own **local Wi-Fi access point** or USB. The link is authenticated with the laptop's endpoint key: a laptop that is not in the directory cannot inject. The site node never sees plaintext: the laptop's Python endpoint (§7.4) hands it finished shards and receives rebuilt ciphertext.
+
+## 10. Staff app and consoles
+
+### 10.1 One app, on the clinic laptop
+- A **web app** (PWA) served locally by the endpoint service on the clinic laptop; works fully offline in the laptop's browser.
+- All clinical crypto runs in the Python `endpoint/` package on the laptop (§7.4), so plaintext never reaches the site node.
+- **Languages:** built on a translation catalogue from the start (ICU MessageFormat strings, no text in code). English and Swahili first; every Swahili string reviewed by a native-speaking clinician before a pilot. Layout tolerates longer strings; numbers, dates and units are localised.
+- **Accessibility:** full keyboard use; minimum 44 px targets for touchscreen laptops; screen-reader labels; never colour alone for status.
+
+### 10.2 Sign-in on the shared laptop
+- Each clinic **laptop** holds its clinic's endpoint keys (§9.4), encrypted at rest and unlocked only while the app is open.
+- Each **staff member** signs in with a short personal PIN (rate-limited, locks after repeated failures). Messages record who wrote them inside the signed payload; the hospital sees "Nurse A. Mollel, Murieti".
+- Auto-lock after inactivity (default 5 min, assumption). A lost laptop is removed from the directory by the admin.
+
+### 10.3 Clinic workflow
+| Screen | Purpose |
+|---|---|
+| **Patients** | List per clinic: local ID, name, age, sex. Messages are grouped by patient, not by conversation. |
+| **New referral** | Structured form mapped to FHIR `ServiceRequest`: reason, working diagnosis, history, vitals, treatment given, urgency; photo attachments (wounds, lab slips). Free-text note always allowed. |
+| **Case view** | One referral's thread: status (*Sent, In transit, Opened, Accepted / Declined / Needs information*), hospital advice, results, and the delivery deadline. |
+| **Results** | Lab and imaging results from the hospital (FHIR `DiagnosticReport`), linked to the patient. |
+
+Patient identifiers inside the encrypted payload are limited to **name, age, sex and local ID** (no national or insurance numbers).
+
+### 10.4 Hospital triage
+- **Inbox sorted by urgency, then age**, with the clinic, patient summary and how long it took to arrive.
+- One-tap responses: **Accept** (with expected arrival advice), **Decline** (with reason and alternative), **Need information** (question back to the clinic). Each response is itself a message, tracked like any other.
+- Results can be sent back to the originating clinic from the case.
+
+### 10.5 Crews (zero-touch)
+Ambulance and transport crews never interact with the system. The node's status light (§11.4) tells them it is working; the delivery state lives with the staff who sent the message.
+
+### 10.6 Admin console (hub)
+For the network administrator, on the hub's local network only:
+- **Inventory:** every node and laptop, role, service area, software version, last contact, battery and storage from health telemetry.
+- **Provision / revoke** nodes and laptops (§9.4); **publish** the endpoint directory and revocation list.
+- **Updates:** stage and monitor signed software rollouts (§9.5).
+- **Network health:** delivery times per clinic, messages flagged NOT DELIVERED, refusals by reason (possible attacks), nodes not seen recently.
+All admin actions are signed with the operator's hub credential and logged.
+
+### 10.7 Network map and journey (demo and admin)
+The live map (real streets offline when the scenario has coordinates, a plain ground otherwise), moving message pieces, and the journey view of one message are shared by the emulator demo and the admin console. They are fed by one telemetry schema (`docs/telemetry.schema.json`).
 
 ## 11. Hardware
 
-### 11.1 Bill of materials by role
+### 11.1 Variants by role
+Indicative prices (USD, 2026, single units, before shipping and duty); confirm at purchase.
 
-| Component | Relay / Mule | Site node / Hub |
-|---|---|---|
-| Compute | Raspberry Pi Zero 2 W | Raspberry Pi 4 or 5 |
-| Storage | Industrial high-endurance microSD (e.g. SanDisk Industrial, Swissbit), 32 GB | Industrial USB SSD (≥128 GB) + industrial microSD boot |
-| Secure element | ATECC608B (I²C) | ATECC608B (I²C) |
-| RTC | DS3231 + CR2032 | DS3231 + CR2032 |
-| LoRa | SX1262 module + antenna (region-correct band) | SX1262 module + antenna |
-| Wi-Fi / BLE | On-board | On-board |
-| Power protection | UPS HAT (e.g. PiSugar 3 or Geekworm X-series) with shutdown signal | UPS HAT or mains UPS |
-| Power input | 12–24 V → 5 V/3 A DC-DC buck (vehicle/solar) | Mains or 12 V |
-| Solar (street light) | Panel + battery sized per site irradiance | — |
-| Enclosure | IP67 polycarbonate (~150×100×70 mm), cable glands, internal aluminium heat-spreader, white/shaded exterior | Indoor case |
+| Part | Relay (street light) | Mule (vehicle) | Site / hub |
+|---|---|---|---|
+| Compute | Pi Zero 2 W | Pi Zero 2 W | Pi 5 (4 GB) |
+| Storage | Industrial microSD 32 GB | Industrial microSD 32 GB | NVMe SSD 256 GB + microSD boot |
+| Secure element | ATECC608B | ATECC608B | ATECC608B |
+| RTC | DS3231 + CR2032 | DS3231 + CR2032 | Pi 5 RTC + battery |
+| LoRa | SX1262, external antenna | SX1262, roof or rear-window antenna | SX1262, mast antenna |
+| Wi-Fi | On-board + external antenna option | On-board | On-board; serves the staff app access point |
+| Power | 10–20 W panel, 12 V LiFePO4 battery, charge controller, UPS HAT | 12–24 V vehicle supply via automotive DC-DC, UPS HAT | Mains + small UPS |
+| Status light | 1 × RGB LED, visible through enclosure | 1 × RGB LED on the dash cable | 1 × RGB LED |
+| Enclosure | IP67, white, shaded, pole clamp | IP54, vibration mounts | Indoor case |
+| **Target total** | **~$90–100** (excluding the pole) | **~$60–80** | **~$150–250** |
 
-### 11.2 Power behaviour
-- The UPS HAT signals the daemon on input loss. The daemon finishes the current transaction, checkpoints WAL, and shuts down within the UPS hold-up time. *Target: ≤ 3 s. Validate in Phase 2.*
-- Vehicle installs must tolerate engine-crank dips and load dumps (the DC-DC converter must be automotive-rated).
+### 11.2 Power budget (assumptions until measured in H1)
+| Variant | Idle | Transferring | Daily energy (assumed duty) |
+|---|---|---|---|
+| Pi Zero 2 W node | ~0.7 W | ~2 W | ~20 Wh |
+| Pi 5 hub | ~3 W | ~7 W | ~90 Wh (mains) |
 
-### 11.3 Environmental
-- Sealed enclosures in direct sun can exceed 65 °C. Measure internal temperature in the Phase 2 heat test, and throttle or suspend Wi-Fi bursts above a configured threshold.
+A solar relay must ride through the longest expected run of overcast days at the pilot site; the panel and battery are sized from the site's irradiance data during pilot planning (§18). The emulator's power model uses these figures as parameters.
+
+### 11.3 Power behaviour
+- The UPS HAT signals the daemon on input loss; the daemon signs receipts for everything held (already implemented in the core), finishes the current transaction and shuts down within the hold-up time. *Target: ≤ 3 s; validate in H1.*
+- Vehicle installs tolerate engine-crank dips and load dumps (automotive-rated DC-DC).
+
+### 11.4 Status light
+| Light | Meaning |
+|---|---|
+| Slow green breath | Healthy, nothing carried |
+| Solid blue | Carrying messages |
+| Blue flash | Handing over or receiving right now |
+| Amber | Storage nearly full, or not seen a hub for 7 days (certificate renewal due) |
+| Red | Fault: certificate expired or revoked, storage error, or power failing |
+
+### 11.5 Environmental
+- Sealed enclosures in direct sun can exceed 65 °C: measure in the H1 heat test and throttle or pause Wi-Fi bursts above a threshold.
 - Vibration: secure the SD card and connectors; prefer soldered headers.
 
 ## 12. Emulator
 
 ### 12.1 Principle
-The emulator drives the **real `NodeCore`** in a single process on a **discrete-event virtual clock**, so days of scenario run in seconds and every run can be reproduced from its seed. Only the hardware is virtual: radios, RTC, power/UPS, a software P-256 secure element, and seeded entropy. If the emulator works, the protocol logic works.
+The emulator drives the **real `NodeCore`** in a single process on a **discrete-event virtual clock**, so days of scenario run in seconds and every run can be reproduced from its seed. Only the hardware is virtual: radios, RTC, power/UPS, a software P-256 secure element, and seeded entropy. Simulated power cuts throw away a node's in-memory state and rebuild it from its storage file; true mid-write crashes are covered by a subprocess `SIGKILL` test.
 
-Simulated power cuts throw away a node's in-memory state and rebuild it from its storage file. True mid-write crashes are covered separately by a subprocess `SIGKILL` test against `storage.py`.
+**Goal for v0.2:** realistic enough to *size a pilot*: how many vehicles and relays a district needs, expected delivery times, storage and battery, with every assumption visible and replaceable by H1 measurements.
 
-### 12.2 Physical pressures modelled
-
-| Pressure | Model | What it exercises |
+### 12.2 Fidelity model
+| Area | v0.1 | v0.2 (built, P8 and P11) |
 |---|---|---|
-| Mobility | Nodes follow scenario routes or schedules; contact when distance ≤ radio range | Store-and-forward, PRoPHET learning |
-| Short contacts | Contact duration from relative speed and range; link bandwidth limit | Transfer scheduling, Bloom/exact summaries |
-| Link loss and bit errors | Per-link loss rate, burst loss, bit flips | Merkle verification, erasure recovery |
-| Power cuts | Random and scheduled brownouts, battery and solar models; the process is *really killed* mid-transaction | WAL durability, custody correctness |
-| Clock faults | RTC drift, RTC failure, reset to epoch | HLC and Bundle Age |
-| Storage pressure | Small capacity limits | Eviction, refusal, no-silent-loss |
-| Hostile nodes | Revoked or unregistered injector, forged receipts, corrupt shards | PKI and verification |
-| LoRa | Range, duty-cycle budget | Control-plane spread |
+| Wi-Fi link | Disc range, fixed 2 s setup, fixed 1.5 MB/s | Log-distance path loss with log-normal shadowing, **clutter from OSM building density** along the path, **line of sight from SRTM elevation**; throughput falls with distance; BLE discovery delay before Wi-Fi setup |
+| Channel sharing | Each contact independent | Contacts in the same neighbourhood **share airtime** (one Wi-Fi channel per area) |
+| LoRa | Disc range, airtime, duty cycle | Same path-loss and terrain model as Wi-Fi with LoRa link budget per spreading factor |
+| Compute | Free | **Per-operation costs** for P-256 verify, Ed25519, XChaCha20, Merkle hashing, SQLCipher writes, erasure decode; per node type, from published Pi benchmarks first, replaced by H1 measurements |
+| Storage | Capacity limit | Plus write throughput and a flash-wear counter |
+| Mobility | Exact loops | **Schedules with noise**: departure jitter, traffic delays, skipped rounds, breakdowns; weekly patterns (night stops, market days); on-foot couriers with irregular paths |
+| Power | Battery and solar curve | Per-variant power draw from §11.2, irradiance by month for the site |
+| Updates | — | Spread and rollback of signed updates (§9.5) |
 
-### 12.3 Scenarios (`simulation/scenarios/*.yaml`)
-Region-agnostic, with several shipped:
-- `rural-clinics`: hub, 4 clinics, 2 vans, 1 ambulance, 3 street-light relays
-- `disaster-response`: field hospital, ad-hoc mules, failing relays
-- `island-medevac`: sparse, long-delay contacts
-- `stress`: every pressure at once
+Every parameter lives in the scenario or a shared `simulation/assumptions.yaml` with its **source** (published figure, estimate or H1 measurement), and the run report lists the assumptions it used.
 
-Each scenario defines nodes, SAs, routes, schedules, radio parameters, fault injection and message workload. Runs take a seed so they can be reproduced exactly.
+### 12.3 Pilot sizing
+A batch runner sweeps scenario parameters across many seeds and reports with confidence intervals, for example:
+- delivery time distribution vs. number of vans, relay count and placement;
+- share of CRITICAL messages delivered within 2 h, 4 h, 6 h;
+- peak storage per node type; battery days of autonomy per relay;
+- traffic overhead (bytes moved per byte delivered).
+Output: CSV plus charts in a Markdown report, so a partner can read "3 vans and 2 relays give 90 % of critical referrals within 4 h at Arusha volumes (assumed)".
 
-### 12.4 Output
-- Drives the **web map** (§10.3) through the shared telemetry schema.
-- The terminal shows plain logs.
-- At the end of a run it writes a metrics report: delivery ratio by class, latency distribution, NOT-DELIVERED count with reasons, storage peaks, shards per delivered bundle (overhead), and custody-ledger consistency checks.
+### 12.4 Scenarios
+`arusha` (real roads), `rural-clinics`, `disaster-response`, `island-medevac`, `stress`. Message volumes are estimates until a partner provides real ones; each scenario states its assumed volumes.
+
+### 12.5 Output
+Run report (delivery by class, latency, NOT-DELIVERED with reasons, storage peaks, overhead, ledger checks, assumptions used), the live map, and the journey view.
+
+### 12.6 Calibration plan
+Hardware phase H1 measures, on real Pis: link-up time, throughput vs. distance, LoRa range around Arusha, per-operation compute costs, power draw, UPS hold-up, enclosure temperature. Each replaces the matching assumption, and the sizing results are re-run.
 
 ## 13. Regulatory and clinical safety (design-aligned, not certified)
 
@@ -397,11 +467,12 @@ dtn-medical-mesh/
 │   ├── requirements.md          # REQ-* IDs
 │   └── hardware/                # BOM, wiring, enclosure, power notes
 ├── node/                        # sans-IO core + daemon (§9)
-├── endpoint/                    # endpoint-only crypto, FHIR-lite (§7.4, §6.4)
-├── interface/                   # FastAPI + PWA + map (§10)
+├── endpoint/                    # endpoint crypto reference implementation, FHIR-lite (§7.4, §6.4)
+├── interface/                   # staff app, admin console, map (§10)
 ├── simulation/                  # emulator + scenarios (§12)
 ├── validation/                  # tests + trace_matrix.py (§13, §15)
-└── deploy/                      # systemd unit, node.toml examples, image build
+├── tools/                       # offline map build, GIF recording, sizing runs
+└── deploy/                      # systemd unit, node.toml examples, image build (H1)
 ```
 
 ## 15. Testing and validation
@@ -417,7 +488,9 @@ Step-by-step breakdown: [`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md). Ther
 
 | Phase | Scope | Exit criteria |
 |---|---|---|
-| **1 — Simulation** | Node core, endpoint crypto, emulator, PWA and map, all on one machine | `stress` scenario passes zero-silent-loss; full trace matrix coverage of P1 requirements |
+| **1 — Simulation** (done) | Node core, endpoint crypto, emulator, PWA and map, all on one machine | `stress` scenario passes zero-silent-loss; full trace matrix coverage of P1 requirements |
+| **1b — Pilot-grade emulation** (done) | Fidelity model and pilot sizing (§12.2–12.3) | Sizing report for Arusha with every assumption sourced |
+| **1c — Staff app, consoles, node software** (done) | Staff app (§10.1–10.5), admin console (§10.6), daemon design, provisioning and signed updates in emulation (§9.3–9.5) | Clinic-to-hospital referral, triage and results end to end in the emulator, in English and Swahili |
 | **2 — Bench / drive test** | 2–6 real nodes; secure element, RTC, LoRa, UPS; drive-by tests | Measured contact budgets inform the defaults; power-cut and heat tests pass |
 | **3 — Supervised field pilot** | ~10–30 nodes with a partner, running **in parallel** with existing channels | Partner governance in place (§13); pilot metrics reviewed against hazard log |
 
@@ -445,6 +518,13 @@ Decisions made while turning the original design chat into this spec:
 | Fixed k=4, m=2 | **Parity scales with priority** | More paths for important data. |
 | Cap each peer below *k* shards of a bundle | **No cap** (P4.S12 dropped) | Mules copy rather than move shards; a cap would stop one mule completing a delivery and raise the NOT DELIVERED risk. |
 | Repo name `dtn-mesh-medical` | `dtn-medical-mesh` | Matches the actual repository. |
+| No updates in the field | **Signed software updates over the mesh**, release key offline, A/B rollback (v0.2) | A district-wide pilot cannot rely on site visits to patch nodes. |
+| Crew app | **Status light only** (v0.2) | Crews should have nothing to do. |
+| Disc radio model (fixed range, setup, rate) | **Path loss + shadowing, BLE discovery, shared airtime, terrain and clutter, LoRa link budget per SF** (P8) | Defaults calibrated to the old ~100 m / ~2 km ranges; scenarios now set a path-loss exponent instead of a range. |
+| Free compute, exact vehicle loops | **Per-operation CPU/storage time; noisy schedules (night stops, breakdowns); on-foot couriers** (P8) | Arusha vans now park 20:00-06:00: 82/93 delivered in 24 h (was 89/93), zero silent loss. |
+| Arusha relay power | **10 W panel, 77 Wh LiFePO4** per §11.1 (P8) | The earlier 6 W / 30 Wh was below the spec's own hardware. |
+| Health summaries as TELEMETRY bundles (§9.3) | **Node-signed health reports, newest per node**, passed on after everything else in a contact (P11) | Relays and mules cannot inject bundles, and only each node's latest state matters. |
+| Update payload as a ROUTINE bundle (§9.5) | **Content-addressed package** (SHA-256 named in the release-signed manifest), passed on last in each contact (P11) | Nodes cannot open endpoint-sealed bundles; the manifest's hash already makes the payload self-verifying. |
 
 ## 18. Open questions
 1. ~~AEAD choice~~ (decided: XChaCha20-Poly1305).
@@ -454,4 +534,7 @@ Decisions made while turning the original design chat into this spec:
 5. BLE rotating token scheme details and its privacy properties.
 6. Endpoint key recovery when a clinic laptop is lost (re-provision at a hub? escrow?).
 7. Whether relays should drop **TELEMETRY** entirely when storage is under pressure.
-8. Pilot jurisdiction, which decides LoRa band, data-protection regime and clinical safety standard.
+8. Pilot jurisdiction: Tanzania (Arusha) is the working assumption. To confirm with a partner: the permitted LoRa band and duty cycle, the data-protection obligations under Tanzanian law, and the clinical safety process the partner follows.
+9. Real vehicle schedules and message volumes for the pilot district (all current figures are estimates).
+10. Site irradiance data for sizing solar relays (§11.2).
+11. PIN policy details (length, lockout, recovery) agreed with the partner's information governance lead.

@@ -1,0 +1,17 @@
+{
+  "origin": [
+    -3.36557,
+    36.69487
+  ],
+  "x0": -17210.394107269254,
+  "y0": -9332.892200000026,
+  "cell_m": 50.0,
+  "cols": 733,
+  "rows": 375,
+  "elevation": "elevation.i16.gz: int16 metres, little-endian, row 0 south",
+  "clutter": "clutter.u8.gz: building footprint share of each cell, 0-255",
+  "sources": {
+    "elevation": "Mapzen terrarium tiles z12 (AWS Open Data); mostly SRTM 30 m",
+    "clutter": "OpenStreetMap building footprints from the Protomaps extract (ODbL)"
+  }
+}

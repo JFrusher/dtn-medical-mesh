@@ -29,7 +29,7 @@ from node.bundle import (
     shard_id,
 )
 from node.clock import Hlc
-from node.crypto import verify_p256
+from node.crypto import verify_ed25519, verify_p256
 from node.events import (
     Action,
     ContactDown,
@@ -41,15 +41,19 @@ from node.events import (
     EndpointAck,
     Event,
     FrameReceived,
+    HealthTick,
     Inject,
+    Install,
     PowerLow,
     PublishDirectory,
     Revoke,
     SendFrame,
     SetTimer,
+    StageUpdate,
     Store,
     Timer,
 )
+from node.health import HealthReport, decode_report, encode_report, sign_report
 from node.hw.radio import RadioKind
 from node.pki import (
     RENEW_AFTER_S,
@@ -69,6 +73,7 @@ from node.pki import (
 )
 from node.routing import Router, peer_table
 from node.summary import Bloom
+from node.update import Manifest, decode_manifest, parse_stage, stage_body, version_key
 
 T_SHARDS = "shards"
 T_ACKS = "acks"
@@ -81,6 +86,8 @@ T_META = "meta"  # node-wide values such as the last HLC
 T_LEDGER = "ledger"  # receipts this node issued, hash-chained, keyed by sequence number
 T_OUTBOX = "receipt_outbox"  # issued receipts not yet handed to their sender
 T_RECEIPTS_IN = "receipts_in"  # receipts others gave this node, for audit
+T_HEALTH = "health"  # the newest health report from each node, keyed by node ID
+T_PKG = "packages"  # software update payloads, keyed by SHA-256
 RECEIPT_BATCH_S = 0.5
 LORA_MAX_FRAME = 200  # one LoRa frame (§8.10)
 LORA_KINDS = frozenset({"ack", "receipt", "doc"})  # control only: never shards or summaries
@@ -88,7 +95,18 @@ BROADCAST = "*"
 SWEEP_EVERY_S = 60.0  # purge expired shards at most this often, on the next event
 SUMMARY_MAX_SKEW_S = 3600
 EXACT_AFTER_S = 2.0  # send exact lists if the link outlives the first transfer burst (§8.3)
+HUB_DUE_S = 7 * 86400  # amber light: not seen a hub for this long (renewal due, §11.4)
+NEARLY_FULL = 0.9  # amber light: storage this full
 _SUMMARY_CONTEXT = b"dtn-medical-mesh/v1/summary"
+_INJECT_CONTEXT = b"dtn-medical-mesh/v1/inject"
+
+
+class NotInDirectory(ValueError):
+    """A laptop or recipient is not in the current directory (spec §9.6): the send is refused."""
+
+
+def inject_signing_bytes(shards: tuple[bytes, ...]) -> bytes:
+    return _INJECT_CONTEXT + hashlib.sha256(cbor2.dumps(list(shards))).digest()
 
 
 class StorageFull(Exception):
@@ -176,6 +194,19 @@ class NodeCore:
         self.peer_sa: dict[str, str | None] = {}
         self.peer_table: dict[str, dict[str, float]] = {}  # peers' PRoPHET predictabilities
         self.peer_docs: dict[str, dict[str, int]] = {}
+        self.health: dict[str, HealthReport] = {
+            k.decode(): decode_report(v) for k, v in records.get(T_HEALTH, {}).items()
+        }
+        self.peer_health: dict[str, dict[str, int]] = {}
+        self._contacts_since_report = 0
+        hub_seen = meta.get(b"hub_seen")
+        # provisioning (and each renewal) happens at a hub, so the cert's issue time counts
+        issued = float(self.identity.cert.not_before)
+        self.hub_seen_s = max(int.from_bytes(hub_seen) / 1000, issued) if hub_seen else issued
+        self._battery_pct: float | None = None  # from the last health tick
+        self.pkgs: dict[bytes, bytes] = dict(records.get(T_PKG, {}))
+        self.peer_pkgs: dict[str, set[bytes]] = {}
+        self.tried = {k[6:].decode() for k in meta if k.startswith(b"tried:")}  # installs started
 
     def handle(self, event: Event) -> list[Action]:
         self._mono = event.mono
@@ -211,6 +242,7 @@ class NodeCore:
     def _handle(self, event: Event) -> list[Action]:
         match event:
             case ContactUp(radio=RadioKind.WIFI):
+                self._contacts_since_report += 1
                 return [self._send(event.peer_id, self._summary(event.peer_id))]
             case ContactDown(radio=RadioKind.WIFI):
                 for table in (
@@ -221,6 +253,8 @@ class NodeCore:
                     self.peer_docs,
                     self.peer_sa,
                     self.peer_table,
+                    self.peer_health,
+                    self.peer_pkgs,
                 ):
                     table.pop(event.peer_id, None)
                 return self._issue_receipt(event.peer_id)  # anything owed goes to the outbox
@@ -229,6 +263,9 @@ class NodeCore:
             case FrameReceived(radio=RadioKind.LORA):
                 return self._on_lora(event.peer_id, event.frame)
             case Inject():
+                if not self._laptop_allowed(event):
+                    self.dropped["unknown_laptop"] += 1
+                    raise NotInDirectory("this laptop is not in the directory for this site")
                 return self._inject([decode_shard(s) for s in event.shards])
             case EndpointAck():
                 return self._endpoint_ack(event.bundle_id)
@@ -243,6 +280,10 @@ class NodeCore:
                     return []  # contact already over
                 exact = {"t": "exact", "ids": sorted(self.shards), "acks": sorted(self.acks)}
                 return [self._send(peer_id, exact)]
+            case HealthTick():
+                return self._report(event) + self._maybe_install(event)
+            case StageUpdate():
+                return self._stage_update(event)
             case Revoke():
                 return self._revoke(event.subject)
             case PublishDirectory():
@@ -284,7 +325,7 @@ class NodeCore:
                 table = peer_table(msg["prophet"])
                 self.peer_table[peer_id] = table
                 self.router.encounter(peer_cert.sa, table, self.clock_s)
-                remember = Store(table=T_META, key=b"router", value=self.router.encode())
+                remember = [Store(table=T_META, key=b"router", value=self.router.encode())]
                 self.peer_has[peer_id] = set()
                 self.peer_acks[peer_id] = set()
                 self.peer_certs[peer_id] = {str(i) for i in msg["certs"]}
@@ -292,10 +333,19 @@ class NodeCore:
                 if not isinstance(docs, dict):
                     raise FormatError("summary docs must be a map")
                 self.peer_docs[peer_id] = {str(k): int(v) for k, v in docs.items()}
+                health = msg["health"]
+                if not isinstance(health, dict):
+                    raise FormatError("summary health must be a map")
+                self.peer_health[peer_id] = {str(k): int(v) for k, v in health.items()}
+                self.peer_pkgs[peer_id] = {_bytes(h) for h in msg["pkgs"]}
+                if peer_cert.role is Role.HUB:
+                    self.hub_seen_s = self.clock_s
+                    ms = int(self.clock_s * 1000).to_bytes(8)
+                    remember.append(Store(table=T_META, key=b"hub_seen", value=ms))
                 follow_up = SetTimer(name=f"exact:{peer_id}", at_mono=self._mono + EXACT_AFTER_S)
                 return [
                     follow_up,
-                    remember,
+                    *remember,
                     *self._pay_receipts_owed(peer_id),
                     *self._renew(peer_id, peer_cert),
                     *self._offer(peer_id),
@@ -322,6 +372,10 @@ class NodeCore:
                 return self._accept(decode_shard(_bytes(msg["s"])), source=peer_id, age_ms=age)
             if kind == "ack":
                 return self._on_ack(decode_ack(_bytes(msg["a"])), source=peer_id)
+            if kind == "health":
+                return self._on_health(decode_report(_bytes(msg["r"])))
+            if kind == "pkg":
+                return self._on_pkg(_bytes(msg["d"]))
             raise FormatError(f"unknown frame type {kind!r}")
         except (FormatError, KeyError, TypeError, cbor2.CBORDecodeError):
             self.dropped["malformed"] += 1
@@ -334,6 +388,8 @@ class NodeCore:
             "bloom": Bloom.of(held).encode(),
             "certs": sorted(self.certs),
             "docs": {k: d.seq for k, d in sorted(self.docs.items())},
+            "health": {k: r.seq for k, r in sorted(self.health.items())},
+            "pkgs": sorted(self.pkgs),
             "prophet": {sa: round(p, 4) for sa, p in sorted(self.router.p.items())},
         }
         issuer = self.identity.issuer
@@ -459,10 +515,11 @@ class NodeCore:
         )
         has.update(s.shard_id for s in missing)
         actions += self._certs_for(peer_id, {s.header.injector for s in missing})
-        return actions + [
+        actions += [
             self._send(peer_id, {"t": "shard", "s": encode_shard(s), "age": self._age_ms(s)})
             for s in missing
         ]
+        return actions + self._health_for(peer_id) + self._pkgs_for(peer_id)
 
     def _docs_for(self, peer_id: str) -> list[Action]:
         known = self.peer_docs.setdefault(peer_id, {})
@@ -472,6 +529,134 @@ class NodeCore:
             known[d.key] = d.seq
             out.append(self._send(peer_id, {"t": "doc", "d": encode_doc(d)}))
         return out
+
+    # --- health and status light (spec §9.3, §11.4) --------------------------
+
+    def status_light(self) -> str:
+        """red: fault; amber: needs attention; blue-flash: exchanging now; blue: carrying."""
+        cert = self.identity.cert
+        if (
+            self.config.node_id in self.revoked
+            or self.clock_s > cert.not_after
+            or (self._battery_pct is not None and self._battery_pct < 10)
+        ):
+            return "red"
+        hub_overdue = (
+            self.config.role is not Role.HUB and self.clock_s - self.hub_seen_s > HUB_DUE_S
+        )
+        if self.used_bytes >= NEARLY_FULL * self.config.capacity_bytes or hub_overdue:
+            return "amber"
+        if self.peer_bloom:
+            return "blue-flash"
+        return "blue" if self.shards else "green"
+
+    def _report(self, tick: HealthTick) -> list[Action]:
+        self._battery_pct = tick.battery_pct
+        me = self.config.node_id
+        previous = self.health.get(me)
+        report = sign_report(
+            HealthReport(
+                node=me,
+                signer=self.identity.cert.cert_id,
+                seq=previous.seq + 1 if previous else 1,
+                at_ms=self.hlc.wall_ms,
+                version=tick.version,
+                battery_pct=tick.battery_pct,
+                temp_c=tick.temp_c,
+                used_bytes=self.used_bytes,
+                capacity_bytes=self.config.capacity_bytes,
+                contacts=self._contacts_since_report,
+                refusals=dict(self.dropped),
+                light=self.status_light(),
+            ),
+            self.identity.sign,
+        )
+        self._contacts_since_report = 0
+        self.health[me] = report
+        return [Store(table=T_HEALTH, key=me.encode(), value=encode_report(report))]
+
+    def _on_health(self, r: HealthReport) -> list[Action]:
+        held = self.health.get(r.node)
+        if held is not None and held.seq >= r.seq:
+            return []
+        cert = self.certs.get(r.signer)
+        if not (
+            cert is not None
+            and cert.subject == r.node
+            and self._valid(cert)
+            and verify_p256(cert.pubkey, r.signing_bytes(), r.sig)
+        ):
+            self.dropped["bad_health"] += 1
+            return []
+        self.health[r.node] = r
+        return [Store(table=T_HEALTH, key=r.node.encode(), value=encode_report(r))]
+
+    def _health_for(self, peer_id: str) -> list[Action]:
+        """Lowest priority: the newest report of each node the peer lacks."""
+        known = self.peer_health.setdefault(peer_id, {})
+        newer = [r for n, r in sorted(self.health.items()) if known.get(n, 0) < r.seq]
+        out = self._certs_for(peer_id, {r.signer for r in newer if r.signer in self.certs})
+        for r in newer:
+            known[r.node] = r.seq
+            out.append(self._send(peer_id, {"t": "health", "r": encode_report(r)}))
+        return out
+
+    # --- software updates (spec §9.5) ----------------------------------------
+
+    def _updates(self) -> list[tuple[Manifest, tuple[str, ...]]]:
+        return [parse_stage(d.body) for d in self.docs.values() if d.kind == "update"]
+
+    def _stage_update(self, event: StageUpdate) -> list[Action]:
+        manifest = decode_manifest(event.manifest)
+        if not (
+            manifest.authentic(self.identity.release_pubkey) and manifest.matches(event.payload)
+        ):
+            raise ValueError("update is not signed by the release key or its payload differs")
+        self.pkgs[manifest.payload_hash] = event.payload
+        store = Store(table=T_PKG, key=manifest.payload_hash, value=event.payload)
+        return [store, *self._publish("update", stage_body(manifest, event.stage))]
+
+    def _on_pkg(self, data: bytes) -> list[Action]:
+        h = hashlib.sha256(data).digest()
+        if h in self.pkgs:
+            return []
+        if not any(m.payload_hash == h and m.matches(data) for m, _ in self._updates()):
+            self.dropped["bad_pkg"] += 1
+            return []
+        self.pkgs[h] = data
+        return [Store(table=T_PKG, key=h, value=data)]
+
+    def _pkgs_for(self, peer_id: str) -> list[Action]:
+        """Last of all: payloads of current updates that the peer lacks."""
+        known = self.peer_pkgs.setdefault(peer_id, set())
+        wanted = {m.payload_hash for m, _ in self._updates()}
+        out: list[Action] = []
+        for h in sorted(wanted & set(self.pkgs) - known):
+            known.add(h)
+            out.append(self._send(peer_id, {"t": "pkg", "d": self.pkgs[h]}))
+        return out
+
+    def _maybe_install(self, tick: HealthTick) -> list[Action]:
+        """Install only with the verified payload, on external power, with no contact open."""
+        if not tick.external_power or self.peer_bloom:
+            return []
+        running = version_key(tick.version)
+        ready = [
+            m
+            for m, stage in self._updates()
+            if self.config.role.value in stage
+            and version_key(m.version) > running >= version_key(m.min_version)
+            and m.payload_hash in self.pkgs
+            and m.version not in self.tried
+        ]
+        if not ready:
+            return []
+        m = max(ready, key=lambda x: version_key(x.version))
+        self.tried.add(m.version)  # recorded first: a version that fails is never retried
+        return [
+            Store(table=T_META, key=b"tried:" + m.version.encode(), value=b"1"),
+            Install(version=m.version, payload=self.pkgs[m.payload_hash]),
+        ]
 
     def _revoke(self, subject: str) -> list[Action]:
         current = self.docs.get(f"crl:{self.identity.cert.cert_id}")
@@ -493,13 +678,18 @@ class NodeCore:
         if not doc_authentic(doc, issuer, root, int(self.clock_s), self.certs, self.revoked):
             self.dropped["bad_doc"] += 1
             return []
+        if doc.kind == "update":
+            manifest, _ = parse_stage(doc.body)
+            if not manifest.authentic(self.identity.release_pubkey):
+                self.dropped["bad_update"] += 1  # a hub cannot push software on its own
+                return []
         self.docs[doc.key] = doc
         actions: list[Action] = [Store(table=T_DOCS, key=doc.key.encode(), value=encode_doc(doc))]
         if doc.kind == "crl":
             self.revoked = self._revoked()
             self._verified_headers.clear()  # re-check every injector against the new list
             actions += self._lora({"t": "doc", "d": encode_doc(doc)})
-        elif self.config.sa is not None and issuer is not None:
+        elif doc.kind == "dir" and self.config.sa is not None and issuer is not None:
             actions.append(DirectoryUpdate(doc=encode_doc(doc), issuer=encode_cert(issuer)))
         for peer in sorted(self.peer_has):
             actions += self._offer(peer)
@@ -550,6 +740,17 @@ class NodeCore:
         return ok
 
     # --- shards -------------------------------------------------------------
+
+    def _laptop_allowed(self, event: Inject) -> bool:
+        listed = any(
+            sa == self.config.sa and signing == event.laptop_key
+            for d in self.docs.values()
+            if d.kind == "dir"
+            for _, sa, _, signing in cbor2.loads(d.body)
+        )
+        return listed and verify_ed25519(
+            event.laptop_key, inject_signing_bytes(event.shards), event.sig
+        )
 
     def _inject(self, shards: list[Shard]) -> list[Action]:
         bids = {s.header.bundle_id for s in shards}
@@ -817,7 +1018,9 @@ def _held(sid: bytes, has: set[bytes], bloom: Bloom) -> bool:
 
 
 def _summary_signing_bytes(msg: Mapping[str, object]) -> bytes:
-    body = cbor2.dumps([msg["bloom"], msg["certs"], msg["docs"], msg["prophet"]])
+    body = cbor2.dumps(
+        [msg["bloom"], msg["certs"], msg["docs"], msg["health"], msg["pkgs"], msg["prophet"]]
+    )
     return _SUMMARY_CONTEXT + cbor2.dumps([msg["from"], msg["to"], msg["hlc"], body])
 
 

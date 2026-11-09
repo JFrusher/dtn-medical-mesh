@@ -1,5 +1,6 @@
 """Virtual endpoints (clinic/hospital laptops) attached to site nodes in the simulation."""
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from functools import partial
@@ -11,6 +12,8 @@ from endpoint.fhir import Message
 from endpoint.pipeline import build_shards, open_delivered
 from endpoint.state import Outgoing, Status
 from node.bundle import Priority, decode_bundle, encode_shard
+from node.config import PRIORITY_CLASSES, PriorityClass
+from node.core import NotInDirectory, inject_signing_bytes
 from node.events import EndpointAck, Inject
 from simulation.virtual_hw import SIM_EPOCH, SeededEntropy
 from simulation.world import SimNode, World
@@ -22,6 +25,8 @@ class Received:
     content: bytes  # FHIR-lite (endpoint.fhir), as signed by the sender
     bundle_id: bytes
     at_s: float  # simulation time it was opened
+    priority: Priority  # from the bundle header: the triage inbox sorts by it
+    sent_s: float  # simulation time it was written (header creation time)
 
     @property
     def message(self) -> Message:
@@ -41,6 +46,7 @@ class VirtualEndpoint:
     inbox: list["Received"] = field(default_factory=list)
     pending: list[tuple[bytes, ...]] = field(default_factory=list)  # site node was down
     sent_content: dict[bytes, tuple[bytes, Priority, float]] = field(default_factory=dict)
+    classes: Mapping[Priority, PriorityClass] = field(default_factory=lambda: PRIORITY_CLASSES)
 
     def __post_init__(self) -> None:
         if self.site.config.sa is None:
@@ -56,6 +62,8 @@ class VirtualEndpoint:
         return self.send(to, fhir.encode(message, sent_at), priority)
 
     def send(self, to: str, content: bytes, priority: Priority) -> bytes:
+        if to not in self.directory:
+            raise NotInDirectory(f"{to} is not in {self.name}'s directory")
         entry = self.directory[to]
         site_sa = self.site.config.sa
         assert site_sa is not None  # checked in __post_init__
@@ -68,10 +76,11 @@ class VirtualEndpoint:
             dst_sa=entry.sa,
             priority=priority,
             created=int((SIM_EPOCH + self.world.scheduler.now) * 1000),  # wall-clock ms
+            classes=self.classes,
         )
         encoded = tuple(encode_shard(s) for s in shards)
         if self.site.up:
-            self.world.dispatch(self.site, partial(Inject, shards=encoded))
+            self.world.dispatch(self.site, self._inject(encoded), answer_now=True)
         else:
             self.pending.append(encoded)  # the laptop keeps it until its node is back
         h = shards[0].header
@@ -84,7 +93,17 @@ class VirtualEndpoint:
 
     def _flush_pending(self) -> None:
         while self.pending:
-            self.world.dispatch(self.site, partial(Inject, shards=self.pending.pop(0)))
+            try:
+                self.world.dispatch(self.site, self._inject(self.pending[0]), answer_now=True)
+            except NotInDirectory:  # removed while its node was down: keep it, visible
+                self.world.log(self.world.scheduler.now, f"REFUSED {self.name}: not in directory")
+                return
+            self.pending.pop(0)
+
+    def _inject(self, encoded: tuple[bytes, ...]) -> "partial[Inject]":
+        """Signed with this laptop's key: the site node checks it against its directory."""
+        sig = self.keys.signing.sign(inject_signing_bytes(encoded))
+        return partial(Inject, shards=encoded, laptop_key=self.keys.signing_public, sig=sig)
 
     def status(self, bundle_id: bytes) -> Status:
         return self.sent[bundle_id].status(self._now_ms())
@@ -110,6 +129,8 @@ class VirtualEndpoint:
             opened.content,
             bundle.header.bundle_id,
             self.world.scheduler.now,
+            bundle.header.priority,
+            bundle.header.created / 1000 - SIM_EPOCH,
         )
         self.inbox.append(received)
         self.world.log(self.world.scheduler.now, f"OPENED by {self.name}")
@@ -118,8 +139,8 @@ class VirtualEndpoint:
 
     def update_directory(self, doc: bytes, issuer: bytes) -> None:
         now = int(SIM_EPOCH + self.world.scheduler.now)
-        for entry in verified_entries(doc, issuer, self.root_pubkey, now):
-            self.directory[entry.name] = entry
+        # the newest signed directory replaces the old one: a removed laptop drops out
+        self.directory = {e.name: e for e in verified_entries(doc, issuer, self.root_pubkey, now)}
 
     def _on_delivered(self, bundle_id: bytes) -> None:
         self.sent[bundle_id].delivered_ms = self._now_ms()

@@ -105,15 +105,17 @@ def valid(
 
 @dataclass(frozen=True)
 class Identity:
-    """What a node is provisioned with: its certificate chain, the root key and its signer."""
+    """What a node is provisioned with: its certificate chain, the root and release keys, and
+    its signer."""
 
     cert: Cert
     issuer: Cert | None  # the issuing hub's cert; None for hubs (issued by the root)
     root_pubkey: bytes
     sign: Signer
+    release_pubkey: bytes  # offline key that signs software updates (§9.5)
 
 
-DOC_KINDS = ("crl", "dir")  # revocation list, endpoint directory
+DOC_KINDS = ("crl", "dir", "update")  # revocation list, endpoint directory, software update
 
 
 @dataclass(frozen=True)
@@ -122,6 +124,7 @@ class HubDoc:
 
     kind "crl": body is the hub's cumulative list of revoked node IDs (§7.6).
     kind "dir": body is the endpoint directory: names, service areas and public keys (§7.6).
+    kind "update": body is a release-signed manifest and the roles it goes to now (§9.5).
     """
 
     kind: str

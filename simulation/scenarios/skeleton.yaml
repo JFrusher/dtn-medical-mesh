@@ -2,8 +2,6 @@
 name: skeleton
 duration_s: 7200
 tick_s: 1
-radio:
-  wifi_range_m: 100
 nodes:
   - {id: CLINIC_01, role: site, sa: SA_CLINIC_01, at: [0, 0]}
   - {id: HOSPITAL, role: hub, sa: SA_HOSPITAL, at: [5000, 0]}

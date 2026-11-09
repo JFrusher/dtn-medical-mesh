@@ -6,6 +6,7 @@ from node.core import NodeConfig
 from node.pki import Role
 from simulation.mobility import Route, Static
 from simulation.provision import provision
+from simulation.radio_model import RadioParams
 from simulation.scheduler import Scheduler
 from simulation.world import World
 
@@ -23,14 +24,18 @@ def test_route_positions_with_dwell() -> None:
 def test_mule_makes_and_breaks_contacts(tmp_path: Path) -> None:
     s = Scheduler(seed=1)
     log: list[str] = []
-    w = World(s, tmp_path, log=lambda t, m: log.append(f"{t:.0f} {m}"))
+    radio = RadioParams.defaults(wifi_shadow_sigma_db=0)  # no shadowing: a fixed ~91 m reach
+    w = World(s, tmp_path, radio, log=lambda t, m: log.append(f"{t:.0f} {m}"))
     w.add_node(NodeConfig("CLINIC", Role.SITE, "SA_C"), Static((0, 0)))
     w.add_node(NodeConfig("HOSP", Role.HUB, "SA_H"), Static((1000, 0)))
     w.add_node(NodeConfig("MULE", Role.MULE, None), Route(((0, 0), (1000, 0)), speed=10))
     provision(list(w.nodes.values()), seed=1)
     w.start()
     s.run_until(105)
-    assert log == ["2 CONTACT CLINIC <-> MULE", "92 CONTACT HOSP <-> MULE"]  # 2 s link setup
+    (t1, m1), (t2, m2) = [(float(x.split()[0]), x.split(" ", 1)[1]) for x in log]
+    assert (m1, m2) == ("CONTACT CLINIC <-> MULE", "CONTACT HOSP <-> MULE")
+    assert 1.5 < t1 < 5  # BLE discovery plus Wi-Fi join, never instant
+    assert 80 < t2 < 100  # in reach ~90 m before the hospital
     assert w.contacts == {frozenset(("HOSP", "MULE"))}
 
 

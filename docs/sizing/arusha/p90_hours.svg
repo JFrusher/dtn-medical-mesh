@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 346" font-family="system-ui, sans-serif" font-size="13" role="img" aria-label="90th percentile delivery time (h)">
+<style>.bg{fill:#fcfcfb}.t1{fill:#0b0b0b}.t2{fill:#52514e}.grid{stroke:#e4e3df}.bar{fill:#2a78d6}.ci{stroke:#0b0b0b;stroke-width:1.5}@media (prefers-color-scheme: dark){.bg{fill:#1a1a19}.t1{fill:#f0efec}.t2{fill:#c3c2b7}.grid{stroke:#3a3936}.bar{fill:#3987e5}.ci{stroke:#f0efec}}</style>
+<rect class="bg" width="100%" height="100%"/>
+<text class="t1" x="16" y="24" font-size="15" font-weight="600">90th percentile delivery time (h)</text>
+<line class="grid" x1="190.0" x2="190.0" y1="38" y2="320"/>
+<text class="t2" x="190.0" y="336" text-anchor="middle">0 h</text>
+<line class="grid" x1="295.0" x2="295.0" y1="38" y2="320"/>
+<text class="t2" x="295.0" y="336" text-anchor="middle">2 h</text>
+<line class="grid" x1="400.0" x2="400.0" y1="38" y2="320"/>
+<text class="t2" x="400.0" y="336" text-anchor="middle">4 h</text>
+<line class="grid" x1="505.0" x2="505.0" y1="38" y2="320"/>
+<text class="t2" x="505.0" y="336" text-anchor="middle">6 h</text>
+<line class="grid" x1="610.0" x2="610.0" y1="38" y2="320"/>
+<text class="t2" x="610.0" y="336" text-anchor="middle">8 h</text>
+<text class="t1" x="180" y="61" text-anchor="end">baseline</text>
+<path class="bar" d="M190,50 h293.4 q4.0,0 4.0,4.0 v4.0 q0,4.0 -4.0,4.0 h-293.4 z"/>
+<line class="ci" x1="484.8" x2="493.9" y1="56" y2="56"/>
+<line class="ci" x1="484.8" x2="484.8" y1="51" y2="61"/>
+<line class="ci" x1="493.9" x2="493.9" y1="51" y2="61"/>
+<text class="t2" x="499.9" y="61">5.9 h</text>
+<text class="t1" x="180" y="95" text-anchor="end">no relays</text>
+<path class="bar" d="M190,84 h298.6 q4.0,0 4.0,4.0 v4.0 q0,4.0 -4.0,4.0 h-298.6 z"/>
+<line class="ci" x1="484.5" x2="517.5" y1="90" y2="90"/>
+<line class="ci" x1="484.5" x2="484.5" y1="85" y2="95"/>
+<line class="ci" x1="517.5" x2="517.5" y1="85" y2="95"/>
+<text class="t2" x="523.5" y="95">6.0 h</text>
+<text class="t1" x="180" y="129" text-anchor="end">no motorbike</text>
+<path class="bar" d="M190,118 h293.0 q4.0,0 4.0,4.0 v4.0 q0,4.0 -4.0,4.0 h-293.0 z"/>
+<line class="ci" x1="483.3" x2="494.1" y1="124" y2="124"/>
+<line class="ci" x1="483.3" x2="483.3" y1="119" y2="129"/>
+<line class="ci" x1="494.1" x2="494.1" y1="119" y2="129"/>
+<text class="t2" x="500.1" y="129">5.9 h</text>
+<text class="t1" x="180" y="163" text-anchor="end">no health worker</text>
+<path class="bar" d="M190,152 h292.0 q4.0,0 4.0,4.0 v4.0 q0,4.0 -4.0,4.0 h-292.0 z"/>
+<line class="ci" x1="483.2" x2="494.0" y1="158" y2="158"/>
+<line class="ci" x1="483.2" x2="483.2" y1="153" y2="163"/>
+<line class="ci" x1="494.0" x2="494.0" y1="153" y2="163"/>
+<text class="t2" x="500.0" y="163">5.9 h</text>
+<text class="t1" x="180" y="197" text-anchor="end">no ambulance</text>
+<path class="bar" d="M190,186 h372.8 q4.0,0 4.0,4.0 v4.0 q0,4.0 -4.0,4.0 h-372.8 z"/>
+<line class="ci" x1="558.7" x2="571.8" y1="192" y2="192"/>
+<line class="ci" x1="558.7" x2="558.7" y1="187" y2="197"/>
+<line class="ci" x1="571.8" x2="571.8" y1="187" y2="197"/>
+<text class="t2" x="577.8" y="197">7.5 h</text>
+<text class="t1" x="180" y="231" text-anchor="end">double volume</text>
+<path class="bar" d="M190,220 h291.3 q4.0,0 4.0,4.0 v4.0 q0,4.0 -4.0,4.0 h-291.3 z"/>
+<line class="ci" x1="481.5" x2="489.9" y1="226" y2="226"/>
+<line class="ci" x1="481.5" x2="481.5" y1="221" y2="231"/>
+<line class="ci" x1="489.9" x2="489.9" y1="221" y2="231"/>
+<text class="t2" x="495.9" y="231">5.9 h</text>
+<text class="t1" x="180" y="265" text-anchor="end">more parity</text>
+<path class="bar" d="M190,254 h291.9 q4.0,0 4.0,4.0 v4.0 q0,4.0 -4.0,4.0 h-291.9 z"/>
+<line class="ci" x1="483.7" x2="492.6" y1="260" y2="260"/>
+<line class="ci" x1="483.7" x2="483.7" y1="255" y2="265"/>
+<line class="ci" x1="492.6" x2="492.6" y1="255" y2="265"/>
+<text class="t2" x="498.6" y="265">5.9 h</text>
+<text class="t1" x="180" y="299" text-anchor="end">worse radio</text>
+<path class="bar" d="M190,288 h314.7 q4.0,0 4.0,4.0 v4.0 q0,4.0 -4.0,4.0 h-314.7 z"/>
+<line class="ci" x1="492.5" x2="512.7" y1="294" y2="294"/>
+<line class="ci" x1="492.5" x2="492.5" y1="289" y2="299"/>
+<line class="ci" x1="512.7" x2="512.7" y1="289" y2="299"/>
+<text class="t2" x="518.7" y="299">6.3 h</text>
+</svg>

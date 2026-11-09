@@ -2,12 +2,21 @@
 
 from functools import partial
 
+import cbor2
+
 from endpoint.directory import DirectoryEntry, directory_body
-from node.events import PublishDirectory
+from node import node_toml
+from node.events import FrameReceived, PublishDirectory
+from node.hw.radio import RadioKind
 from node.pki import HUB_CERT_LIFETIME_S, ROOT, Identity, Role, encode_cert, encode_doc, issue
 from simulation.endpoints import VirtualEndpoint
 from simulation.virtual_hw import SIM_EPOCH, SeededEntropy, SoftwareSecureElement
 from simulation.world import SimNode, World
+
+
+def release_key(seed: int) -> SoftwareSecureElement:
+    """The offline release key that signs software updates (kept apart from the root CA)."""
+    return SoftwareSecureElement(SeededEntropy(f"{seed}:RELEASE"))
 
 
 def provision(
@@ -19,6 +28,7 @@ def provision(
     Returns the root's secure element (offline in reality; kept for tests and hub tooling).
     """
     root = SoftwareSecureElement(SeededEntropy(f"{seed}:ROOT"))
+    release = release_key(seed).public_key()
     rogue = SoftwareSecureElement(SeededEntropy(f"{seed}:ROGUE_ROOT"))
     now = int(SIM_EPOCH)
     hubs = [n for n in nodes if n.config.role is Role.HUB]
@@ -31,7 +41,8 @@ def provision(
             root.sign, ROOT, c.node_id, c.role, c.sa, hub.se.public_key(), now, HUB_CERT_LIFETIME_S
         )
         hub_certs[c.node_id] = cert
-        hub.identity = Identity(cert, None, root.public_key(), hub.se.sign)
+        hub.identity = Identity(cert, None, root.public_key(), hub.se.sign, release)
+        hub.node_toml = node_toml.write(c, root.sign, None)
     issuer, issuer_cert = hubs[0], hub_certs[hubs[0].config.node_id]
     for node in nodes:
         if node.config.role is Role.HUB:
@@ -44,17 +55,33 @@ def provision(
             cert = issue(
                 rogue.sign, fake.cert_id, c.node_id, c.role, c.sa, node.se.public_key(), now
             )
-            node.identity = Identity(cert, fake, rogue.public_key(), node.se.sign)
+            node.identity = Identity(cert, fake, rogue.public_key(), node.se.sign, release)
+            node.node_toml = node_toml.write(c, rogue.sign, fake)
             continue
         cert = issue(
             issuer.se.sign, issuer_cert.cert_id, c.node_id, c.role, c.sa, node.se.public_key(), now
         )
-        node.identity = Identity(cert, issuer_cert, root.public_key(), node.se.sign)
+        node.identity = Identity(cert, issuer_cert, root.public_key(), node.se.sign, release)
+        node.node_toml = node_toml.write(c, issuer.se.sign, issuer_cert)
     return root
 
 
+def provision_one(node: SimNode, hub: SimNode) -> None:
+    """A spare node brought to the hub after the network started: the hub issues its cert."""
+    c, issuer = node.config, hub.core.identity
+    now = int(hub.core.clock_s)
+    cert = issue(
+        issuer.sign, issuer.cert.cert_id, c.node_id, c.role, c.sa, node.se.public_key(), now
+    )
+    node.identity = Identity(
+        cert, issuer.cert, issuer.root_pubkey, node.se.sign, issuer.release_pubkey
+    )
+    node.node_toml = node_toml.write(c, issuer.sign, issuer.cert)
+
+
 def publish_directory(world: World, endpoints: dict[str, VirtualEndpoint]) -> None:
-    """The first hub publishes the directory; endpoints get it at registration, in person."""
+    """The first hub publishes the directory; site nodes and laptops get it at provisioning,
+    in person (the same doc frame a peer would send; it verifies by its signature alone)."""
     hub = next(n for n in world.nodes.values() if n.config.role is Role.HUB)
     entries = [
         DirectoryEntry(
@@ -64,5 +91,11 @@ def publish_directory(world: World, endpoints: dict[str, VirtualEndpoint]) -> No
     ]
     world.dispatch(hub, partial(PublishDirectory, entries=tuple(directory_body(entries))))
     doc = hub.core.docs[f"dir:{hub.core.identity.cert.cert_id}"]
+    frame = cbor2.dumps({"t": "doc", "d": encode_doc(doc)})
+    for site in world.nodes.values():
+        if site.config.role is Role.SITE:
+            world.dispatch(
+                site, partial(FrameReceived, peer_id=hub.id, radio=RadioKind.WIFI, frame=frame)
+            )
     for e in endpoints.values():
         e.update_directory(encode_doc(doc), encode_cert(hub.core.identity.cert))

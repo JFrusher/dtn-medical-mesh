@@ -2,11 +2,11 @@
   --paper: #eef2f1;      /* cool ward-green: the ground the map sits on */
   --surface: #ffffff;
   --ink: #1f2d2b;
-  --muted: #6b7a77;
+  --muted: #616f6c;
   --rule: #d5dedc;
   --accent: #0f6e74;     /* the one colour that means "the network" */
   --road: #c3d0cd;
-  --transit: #b7791f;
+  --transit: #946219;
   --alarm: #b4232c;
   --alarm-wash: #fbeceb;
   --on-accent: #ffffff;
@@ -61,6 +61,8 @@ button, select, textarea, input { font: inherit; color: inherit; }
 #overlay .load { fill: var(--accent); font-weight: 700; }
 #overlay .piece { fill: var(--accent); stroke: var(--surface); stroke-width: 1; }
 #overlay .piece.mine, #overlay .holder-label { fill: var(--transit); }
+#overlay .light-amber { fill: none; stroke: #e8a10c; stroke-width: 3; }
+#overlay .light-red { fill: none; stroke: #d62828; stroke-width: 3; }
 #overlay .holder { fill: none; stroke: var(--transit); stroke-width: 2; }
 #overlay .holder-label { font-weight: 700; }
 .maplibregl-ctrl-attrib { font: 11px var(--font) !important; }
@@ -144,9 +146,48 @@ button, select, textarea, input { font: inherit; color: inherit; }
 .err { color: var(--alarm); font-size: 13px; }
 .err:empty { display: none; }
 
+/* staff app */
+.signin { display: flex; flex-direction: column; gap: 6px; padding: 16px; }
+.signin label { font-weight: 600; margin-top: 8px; }
+.signin select, .signin input, .form input, .form select, .form textarea {
+  border: 1px solid var(--rule); border-radius: 6px; padding: 8px 10px; background: var(--surface); min-height: 44px; width: 100%; }
+.signin .send { margin: 14px 0 0; min-height: 44px; }
+.demo { font-size: 13px; }
+.tabs { display: flex; gap: 2px; padding: 6px 12px; border-bottom: 1px solid var(--rule); }
+.tabs button { border: 0; background: none; padding: 8px 12px; min-height: 44px; border-radius: 6px; color: var(--muted); cursor: pointer; }
+.tabs button[aria-selected="true"] { background: var(--paper); color: var(--ink); font-weight: 600; }
+.pane { flex: 1; overflow-y: auto; display: flex; flex-direction: column; }
+.form { border-top: 0; }
+.form label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); }
+.form fieldset { border: 1px solid var(--rule); border-radius: 8px; padding: 8px 10px; margin: 0; }
+.form legend { font-size: 13px; color: var(--muted); padding: 0 4px; }
+.form .vitals label { flex-direction: row; }
+.form .send { margin-left: 0; align-self: flex-start; min-height: 44px; }
+.form h2, .patient-head { font-size: 14px; margin: 6px 0 0; }
+.patient-head { color: var(--muted); font-weight: 600; border-bottom: 1px solid var(--rule); padding-bottom: 4px; }
+.msg .text { white-space: pre-line; }
+.msg.nested { margin-left: 24px; }
+.patients { list-style: none; margin: 0; padding: 0; }
+.patients li { padding: 8px 0; border-bottom: 1px solid var(--rule); }
+.chip { display: inline-block; margin: 0 0 4px; padding: 1px 8px; border-radius: 10px; font-size: 12px; font-weight: 600;
+  background: var(--paper); color: var(--muted); }
+.chip.accepted, .chip.opened { color: var(--accent); }
+.chip.declined { color: var(--alarm); background: var(--alarm-wash); }
+.chip.needs-info, .chip.sent { color: var(--transit); }
+.msg .body .chip { display: block; width: max-content; }
+/* 44 px touch targets (spec §10.1) without making text links look like buttons */
+.who .signout, .who .close, .msg .meta button { min-height: 44px; min-width: 44px; display: inline-flex;
+  align-items: center; justify-content: center; vertical-align: middle; }
+.who { padding-top: 4px; padding-bottom: 4px; }
+.answers { display: flex; gap: 8px; margin-top: 6px; flex-wrap: wrap; }
+.answer { border: 1px solid var(--rule); background: var(--surface); border-radius: 6px; padding: 6px 12px; min-height: 44px; cursor: pointer; font-weight: 600; }
+.answer.accepted { color: var(--accent); } .answer.declined { color: var(--alarm); } .answer.needs-info { color: var(--transit); }
+
 /* footer */
 .foot { display: flex; align-items: center; gap: 24px; padding: 8px 20px; font-size: 13px; color: var(--muted); background: var(--surface); border-top: 1px solid var(--rule); }
 .banner { margin: 0; color: var(--ink); }
+.draft { margin: 0; color: var(--transit); }
+.lang select { border: 1px solid var(--rule); background: var(--surface); border-radius: 6px; padding: 3px 6px; }
 .key { display: flex; gap: 16px; margin-left: auto; }
 .key i { display: inline-block; width: 9px; height: 9px; margin-right: 5px; vertical-align: -1px; }
 .key .p { background: var(--ink); } .key .c { background: var(--accent); border-radius: 50%; }
@@ -164,3 +205,22 @@ button, select, textarea, input { font: inherit; color: inherit; }
   .foot { flex-wrap: wrap; } .key { margin-left: 0; }
 }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+
+/* admin console */
+body.admin { overflow: auto; height: auto; }
+.admin-main { max-width: 1100px; margin: 0 auto; padding: 20px; display: flex; flex-direction: column; gap: 28px; }
+.admin-main h2 { font-size: 17px; margin: 0 0 10px; }
+body.admin .bar a { color: var(--accent); }
+.table-wrap { overflow-x: auto; }
+.admin-main table { border-collapse: collapse; width: 100%; background: var(--surface); border: 1px solid var(--rule); border-radius: 8px; }
+.admin-main th, .admin-main td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--rule); font-size: 14px; }
+.admin-main th { color: var(--muted); font-weight: 600; }
+.bad { color: var(--alarm); }
+.admin-act { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; }
+.admin-act label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); }
+.admin-act select, .admin-act input { border: 1px solid var(--rule); border-radius: 6px; padding: 8px 10px; min-height: 44px; background: var(--surface); }
+.admin-act .send { margin-left: 0; min-height: 44px; }
+.admin-signin { max-width: 360px; }
+.light { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
+.light.green { background: #2f9e44; } .light.blue, .light.blue-flash { background: #1c6dd0; }
+.light.amber { background: #e8a10c; } .light.red { background: #d62828; }

@@ -1,0 +1,6 @@
+# A tiny sweep for tests: two variants x three seeds.
+scenario: skeleton
+seeds: 3
+variants:
+  baseline: {}
+  double_volume: {volume: 2}

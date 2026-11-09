@@ -19,7 +19,7 @@ def test_secure_element_signs_verifiably_and_deterministically() -> None:
     der = encode_dss_signature(int.from_bytes(sig[:32]), int.from_bytes(sig[32:]))
     pub.verify(der, b"msg", ec.ECDSA(hashes.SHA256()))
     public = [a for a in dir(se) if not a.startswith("_")]
-    assert sorted(public) == ["public_key", "read_slot", "sign"]
+    assert sorted(public) == ["public_key", "read_slot", "sign", "signs"]  # signs: a counter
 
 
 def test_rtc_follows_scheduler_and_can_fail() -> None:

@@ -13,7 +13,7 @@
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["id", "role", "sa", "x", "y", "up", "battery_pct", "shards", "used_bytes", "route", "hostile"],
+        "required": ["id", "role", "sa", "x", "y", "up", "battery_pct", "shards", "used_bytes", "route", "hostile", "light"],
         "properties": {
           "id": {"type": "string"},
           "role": {"enum": ["hub", "site", "mule", "relay"]},
@@ -25,7 +25,8 @@
           "shards": {"type": "integer"},
           "used_bytes": {"type": "integer"},
           "route": {"type": ["array", "null"], "description": "waypoints [x, y] of a moving node"},
-          "hostile": {"type": "boolean", "description": "emulator only: an attacker"}
+          "hostile": {"type": "boolean", "description": "emulator only: an attacker"},
+          "light": {"enum": ["green", "blue", "blue-flash", "amber", "red", null], "description": "status light (spec §11.4); null when powered off"}
         }
       }
     },

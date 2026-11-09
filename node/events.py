@@ -50,10 +50,32 @@ class PowerLow(EventBase):
 
 
 @dataclass(frozen=True, kw_only=True)
+class HealthTick(EventBase):
+    """Time to write a health report (spec §9.3); the driver reads the hardware sensors."""
+
+    battery_pct: float | None
+    temp_c: float | None
+    version: str
+    external_power: bool  # mains, solar in daylight, or the vehicle's engine running
+
+
+@dataclass(frozen=True, kw_only=True)
+class StageUpdate(EventBase):
+    """Operator at a hub rolls a release-signed update out to `stage` (spec §9.5)."""
+
+    manifest: bytes
+    payload: bytes
+    stage: tuple[str, ...]
+
+
+@dataclass(frozen=True, kw_only=True)
 class Inject(EventBase):
-    """All shards of one new bundle, handed over by the attached endpoint (site nodes only)."""
+    """All shards of one new bundle, handed over by a laptop on the site node's access point
+    (spec §9.6), signed with the laptop's endpoint key (see core.inject_signing_bytes)."""
 
     shards: tuple[bytes, ...]
+    laptop_key: bytes  # Ed25519 public key, as listed in the hub-signed directory
+    sig: bytes
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -83,10 +105,12 @@ Event = (
     | FrameReceived
     | Timer
     | PowerLow
+    | HealthTick
     | Inject
     | EndpointAck
     | Revoke
     | PublishDirectory
+    | StageUpdate
 )
 
 # --- Actions ----------------------------------------------------------------
@@ -149,4 +173,14 @@ class DirectoryUpdate:
     issuer: bytes
 
 
-Action = SendFrame | Store | Delete | SetTimer | Deliver | Delivered | DirectoryUpdate | Emit
+@dataclass(frozen=True, kw_only=True)
+class Install:
+    """Write the verified payload to the spare A/B slot and reboot into it on probation."""
+
+    version: str
+    payload: bytes
+
+
+Action = (
+    SendFrame | Store | Delete | SetTimer | Deliver | Delivered | DirectoryUpdate | Emit | Install
+)

@@ -1,6 +1,6 @@
 # Software of unknown provenance (SOUP)
 
-Third-party runtime software (IEC 62304 §8.1.2). Versions are the locked ones in `uv.lock`; `validation/test_docs.py` fails if this list and the lock file disagree. Development-only tools (pytest, ruff, mypy, hypothesis, playwright, httpx) are not part of the product and are not listed.
+Third-party runtime software (IEC 62304 §8.1.2). Versions are the locked ones in `uv.lock`; `validation/test_docs.py` fails if the runtime table and the lock file disagree; the vendored front-end and data table below is checked by hand. Development-only tools (pytest, ruff, mypy, hypothesis, playwright, httpx) are not part of the product and are not listed.
 
 | Package | Version | Purpose | Safety relevance | Failure we guard against |
 |---|---|---|---|---|
@@ -24,4 +24,6 @@ Shipped in `interface/static/` so the demo works with no internet. Rebuilt by `t
 | pmtiles (JS) | v4.5.0 | BSD-3-Clause | Reads the bundled map file |
 | @protomaps/basemaps | v5.7.2 | BSD-3-Clause | Map styling |
 | Arusha map extract | Protomaps build 2026-11-07 | ODbL, © OpenStreetMap contributors | Streets, places, water |
+| Arusha terrain grids (`simulation/geo/arusha/`) | Mapzen terrarium tiles z12; OSM buildings from the extract above | Elevation: public domain / open (SRTM and others, AWS Open Data); buildings: ODbL | Emulator radio terrain and clutter only; never used by node code |
 | Noto Sans glyphs | basemaps-assets | SIL OFL 1.1 | Map labels |
+| axe-core (`validation/interface/vendor/`) | v4.10.2 | MPL-2.0 | Accessibility scan in tests only; never served to users |
