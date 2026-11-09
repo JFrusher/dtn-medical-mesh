@@ -3,7 +3,7 @@ name = "dtn-medical-mesh"
 version = "0.1.0"
 description = "Delay-tolerant mesh network for offline clinical data transport"
 license = "Apache-2.0"
-requires-python = ">=3.11"
+requires-python = ">=3.11,<3.14"
 dependencies = [
     "cbor2>=6.2.1",
     "cryptography>=50.0.2",
