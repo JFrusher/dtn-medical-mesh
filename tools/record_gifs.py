@@ -101,7 +101,7 @@ def live(scenario: str, start_s: float, speed: float) -> LiveSim:
 
 def hero() -> None:
     """The whole district: vehicles on real roads, contacts, pieces moving, counts climbing."""
-    record("hero", live("arusha", 3600, 240), lambda page: time.sleep(14))
+    record("hero", live("arusha", 7 * 3600, 240), lambda page: time.sleep(14))  # morning rounds
 
 
 def chat() -> None:
