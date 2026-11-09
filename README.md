@@ -12,7 +12,7 @@
 [![Requirements tested](https://img.shields.io/badge/requirements-52%2F52%20tested-0f6e74)](docs/trace_matrix.md)
 [![Silent losses](https://img.shields.io/badge/silent%20losses-0%20in%205%20scenarios-0f6e74)](#results)
 
-<img src="docs/media/hero.gif" alt="Map of Arusha, Tanzania: an ambulance, two vans and an outreach motorbike drive real roads between a regional hospital and four clinics, picking up and handing over encrypted message pieces" width="900">
+<img src="docs/media/hero.webp" alt="One emulated referral followed from start to finish: a clinician at Murieti clinic types it, it is sealed and cut into 12 numbered pieces, a street light, a motorbike and an ambulance carry them, a fake carrier's forged pieces are refused, and the hospital opens the message once 4 pieces arrive" width="900">
 
 </div>
 
@@ -53,6 +53,15 @@ Open http://127.0.0.1:8000. You are looking at a day in the Arusha district, run
 <tr>
 <td><img src="docs/media/chat.gif" alt="A nurse at Murieti signs in with a PIN and sends a critical referral from the form; the ambulance carries it to the hospital; the journey view shows Murieti, Ambulance, Hospital and a timeline ending 'Rebuilt and opened at Hospital'"></td>
 <td><img src="docs/media/stress.gif" alt="Schematic network with three attackers circled in red; the 'bad frames refused' count climbs while deliveries continue"></td>
+</tr>
+<tr>
+<td colspan="2">
+
+**The whole district at once.** Vehicles on real roads, pieces moving at every contact.
+
+<img src="docs/media/map.gif" alt="Map of Arusha, Tanzania: an ambulance, two vans and an outreach motorbike drive real roads between a regional hospital and four clinics, picking up and handing over encrypted message pieces">
+
+</td>
 </tr>
 </table>
 

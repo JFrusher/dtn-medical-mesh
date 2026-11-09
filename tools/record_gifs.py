@@ -3,7 +3,8 @@
     uv run python tools/record_gifs.py            # all
     uv run python tools/record_gifs.py hero chat  # some
 
-Writes docs/media/<name>.gif. Each GIF is a screen recording of the actual demo, scripted.
+Writes docs/media/<name>.gif, a screen recording of the actual demo, scripted. The film job
+writes docs/media/hero.webp, frame by frame.
 """
 
 import math
@@ -50,6 +51,8 @@ def serve(sim: LiveSim) -> Iterator[str]:
 
 
 def record(name: str, sim: LiveSim, script: Callable[[Page], None], width: int = 960) -> None:
+    if not shutil.which("ffmpeg"):
+        sys.exit("ffmpeg is required")
     with tempfile.TemporaryDirectory() as tmp, serve(sim) as url, sync_playwright() as p:
         browser = p.chromium.launch()
         context = browser.new_context(viewport=VIEW, record_video_dir=tmp, record_video_size=VIEW)
@@ -99,9 +102,9 @@ def live(scenario: str, start_s: float, speed: float) -> LiveSim:
     return sim
 
 
-def hero() -> None:
+def map_tour() -> None:
     """The whole district: vehicles on real roads, contacts, pieces moving, counts climbing."""
-    record("hero", live("arusha", 7 * 3600, 240), lambda page: time.sleep(14))  # morning rounds
+    record("map", live("arusha", 7 * 3600, 240), lambda page: time.sleep(14))  # morning rounds
 
 
 def chat() -> None:
@@ -151,10 +154,29 @@ def stress() -> None:
     record("stress", live("stress", 2400, 600), lambda page: time.sleep(14))
 
 
+def film() -> None:
+    """The journey film: stepped frame by frame and encoded in the browser, so no ffmpeg."""
+    from tools.film import film as shoot  # noqa: PLC0415  # tools.film imports this module
+
+    shoot()
+
+
+def film_encode() -> None:
+    """Encode the film again from the frames already on disk."""
+    from tools.film import encode  # noqa: PLC0415  # tools.film imports this module
+
+    encode()
+
+
 if __name__ == "__main__":
-    if not shutil.which("ffmpeg"):
-        sys.exit("ffmpeg is required")
     OUT.mkdir(parents=True, exist_ok=True)
-    jobs = {"hero": hero, "chat": chat, "stress": stress}
-    for name in sys.argv[1:] or list(jobs):
+    jobs = {
+        "map": map_tour,
+        "chat": chat,
+        "stress": stress,
+        "film": film,
+        "film-encode": film_encode,
+    }
+    everything = [job for job in jobs if job != "film-encode"]
+    for name in sys.argv[1:] or everything:
         jobs[name]()

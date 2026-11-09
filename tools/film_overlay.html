@@ -1,0 +1,129 @@
+<style>
+  #film { position: fixed; inset: 0; z-index: 100; pointer-events: none; color: #1f2d2b;
+          font-family: "Seravek", "Gill Sans Nova", Ubuntu, Calibri, "DejaVu Sans", source-sans-pro, sans-serif; }
+  #film [hidden] { display: none !important; }
+  #film .full { position: absolute; inset: 0; background: #f4ecdc; }
+  #film .panel { position: absolute; left: 36px; bottom: 56px; max-width: 1010px; background: #fbf8f1;
+                 border: 1px solid #1f2d2b; padding: 16px 22px; }
+  #film .panel.right { left: auto; right: 36px; }
+  #film .headline { font-size: 27px; line-height: 1.25; }
+  #film .note { font-size: 18px; color: #6b7a77; margin-top: 4px; }
+  #film .slots { display: flex; gap: 4px; margin-bottom: 12px; }
+  #film .slots span { width: 34px; height: 34px; display: grid; place-items: center; font-size: 17px;
+                      border: 1px solid #6b7a77; color: #6b7a77; }
+  #film .slots .in { background: #0f6e74; border-color: #0f6e74; color: #fff; }
+  #film .hex { position: absolute; left: 96px; top: 34px; font: 25px/39px Consolas, "DejaVu Sans Mono", monospace; white-space: pre; }
+  #film .hex b { display: inline-block; width: 52px; text-align: center; color: #0f6e74; font-weight: 400; }
+  #film .hex div { border-bottom: 1px solid #c9b995; }
+  #film .card { display: flex; flex-direction: column; justify-content: center; padding-left: 132px; }
+  #film .card h1 { font-size: 92px; font-weight: 600; margin: 0 0 26px; }
+  #film .card p { font-size: 34px; margin: 0 0 6px; }
+  #film .card .small { font-size: 22px; color: #6b7a77; margin-top: 36px; }
+</style>
+
+<div id="film">
+  <div class="full" data-layer="hex" hidden><div class="hex"></div></div>
+
+  <div class="full card" data-layer="card" hidden>
+    <h1>Satchel</h1>
+    <p>Jacob Frusher</p>
+    <p>jacob@frusher.co.uk</p>
+    <p>github.com/JFrusher/dtn-medical-mesh</p>
+    <p class="small">Emulated, not deployed. Not for emergencies.</p>
+  </div>
+
+  <div class="full" data-layer="paper" hidden></div>
+
+  <div class="panel" hidden>
+    <div class="slots" hidden></div>
+    <div class="headline"></div>
+    <div class="note" hidden></div>
+  </div>
+</div>
+
+<script>
+  (() => {
+    const root = document.getElementById("film");
+    const q = s => root.querySelector(s);
+    const layer = name => q(`[data-layer=${name}]`);
+    window.film = {
+      caption(headline, note, right) {
+        q(".panel").hidden = false;
+        q(".panel").classList.toggle("right", !!right);
+        q(".headline").textContent = headline;
+        q(".note").textContent = note ?? "";
+        q(".note").hidden = !note;
+      },
+      slots(lit) {
+        q(".slots").hidden = lit === null;
+        if (lit === null) return;
+        q(".panel").hidden = false;
+        q(".slots").replaceChildren(...Array.from({ length: 12 }, (_, i) => {
+          const s = document.createElement("span");
+          s.textContent = i;
+          if (lit.includes(i)) s.className = "in";
+          return s;
+        }));
+      },
+      layer(name, opacity) {
+        const l = layer(name);
+        l.hidden = opacity <= 0;
+        l.style.opacity = opacity;
+      },
+      panelOpacity(o) { q(".panel").style.opacity = o; },
+      drawer(side, shown) {
+        const away = (side === "left" ? -100 : 100) * (1 - shown);
+        document.getElementById(side).style.transform = `translateX(${away}%)`;
+      },
+      hex(rows) {
+        q(".hex").replaceChildren(...rows.map((r, i) => {
+          const d = document.createElement("div"), b = document.createElement("b");
+          const t = document.createElement("span");
+          b.textContent = i;
+          t.textContent = r;
+          d.append(b, t);
+          d.style.visibility = "hidden";
+          return d;
+        }));
+      },
+      hexRows(n) { [...q(".hex").children].forEach((d, i) => { d.style.visibility = i < n ? "visible" : "hidden"; }); },
+      hexToSlots(p) {
+        const hex = layer("hex"), slots = [...q(".slots").children];
+        hex.hidden = false;
+        hex.style.opacity = 1;
+        hex.style.zIndex = 2;
+        hex.style.background = `rgba(244, 236, 220, ${1 - p})`;
+        q(".slots").style.opacity = p;
+        slots.forEach(s => { s.style.color = "transparent"; });
+        [...q(".hex").children].forEach((row, i) => {
+          const b = row.children[0];
+          row.children[1].style.opacity = 1 - p;
+          row.style.borderBottomColor = `rgba(201, 185, 149, ${1 - p})`;
+          b.style.transform = "none";
+          const from = b.getBoundingClientRect(), to = slots[i].getBoundingClientRect();
+          const dx = to.left + to.width / 2 - (from.left + from.width / 2);
+          const dy = to.top + to.height / 2 - (from.top + from.height / 2);
+          b.style.transform = `translate(${dx * p}px, ${dy * p}px) scale(${1 - 0.32 * p})`;
+        });
+      },
+      hexDone() {
+        layer("hex").hidden = true;
+        layer("hex").style.background = "";
+        layer("hex").style.zIndex = "";
+        q(".slots").style.opacity = 1;
+        [...q(".slots").children].forEach(s => { s.style.color = ""; });
+      },
+      card(opacity, words) {
+        layer("card").hidden = false;
+        layer("card").style.opacity = opacity;
+        for (const line of layer("card").children) line.style.opacity = words;
+      },
+      clear() {
+        for (const l of root.querySelectorAll("[data-layer]")) { l.hidden = true; l.style.opacity = 1; }
+        q(".panel").hidden = true;
+        q(".panel").style.opacity = 1;
+        q(".slots").hidden = true;
+      },
+    };
+  })();
+</script>
