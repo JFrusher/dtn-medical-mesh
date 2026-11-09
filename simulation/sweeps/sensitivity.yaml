@@ -1,0 +1,28 @@
+# Emulator-to-real sensitivity (docs/sizing/sensitivity.md).
+# The Arusha sizing run (sweeps/arusha.yaml) uses our best-estimate radio figures.
+# This sweep asks the opposite question: if the real hardware is WORSE than modelled,
+# does the network still keep its two promises -- no silent loss, and critical referrals
+# inside 4 hours? Each variant pushes one emulator->real unknown to a pessimistic value,
+# then the last variant pushes all of them at once. Values stay sourced to assumptions.yaml
+# keys so the override is auditable.
+scenario: arusha
+seeds: 10
+variants:
+  baseline: {}
+  # Real Wi-Fi goodput is often ~half the PHY rate we assume (0.5 -> 0.25).
+  half goodput: {set: {radio.wifi_goodput_fraction: 0.25}}
+  # A drive-by contact is only 3-7 s. If the link takes 3 s to come up (vs 1.5 s assumed),
+  # most of the window is gone before a byte moves. This is the make-or-break unknown.
+  slow link-up: {set: {radio.wifi_join_s: 3.0}}
+  # Worse path loss: ~60 m range instead of ~90 m (matches the arusha "worse radio" variant).
+  worse range: {set: {radio.wifi_ple: 3.4}}
+  # Real RF is not error-free: links drop to the bad state and frames flip bits.
+  lossy link: {set: {radio.p_good_to_bad: 0.1, radio.bit_flip_per_frame: 0.001}}
+  # Everything pessimistic at once: the floor case a partner should plan against.
+  pessimistic stack:
+    set:
+      radio.wifi_goodput_fraction: 0.25
+      radio.wifi_join_s: 3.0
+      radio.wifi_ple: 3.4
+      radio.p_good_to_bad: 0.1
+      radio.bit_flip_per_frame: 0.001
