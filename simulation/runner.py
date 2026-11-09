@@ -107,6 +107,7 @@ def main(argv: list[str] | None = None) -> int:
     with tempfile.TemporaryDirectory() as tmp:
         result = run(scenario, args.seed, Path(tmp), echo=not args.quiet)
         report = evaluate(result, args.seed)
+        result.world.close()  # release node stores before tmp is removed (Windows)
     if args.out:
         out = args.out / f"{scenario.name}-{args.seed}"
         out.mkdir(parents=True, exist_ok=True)

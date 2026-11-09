@@ -239,10 +239,10 @@ def render(out: Path, title: str, scenario: str) -> str:
     critical = [(v, stats[v]["critical_4h"]) for v in variants]
     p90 = [(v, stats[v]["p90_h"]) for v in variants]
     (out / "critical_4h.svg").write_text(
-        bar_chart("CRITICAL delivered within 4 h (%)", "%", critical, 100)
+        bar_chart("CRITICAL delivered within 4 h (%)", "%", critical, 100), encoding="utf-8"
     )
     (out / "p90_hours.svg").write_text(
-        bar_chart("90th percentile delivery time (h)", " h", p90, fmt="{:.1f}")
+        bar_chart("90th percentile delivery time (h)", " h", p90, fmt="{:.1f}"), encoding="utf-8"
     )
     lines = [
         f"# {title}",
@@ -282,7 +282,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--scenario", required=True)
     parser.add_argument("--title", default="Sizing report")
     args = parser.parse_args(argv)
-    (args.out / "report.md").write_text(render(args.out, args.title, args.scenario))
+    (args.out / "report.md").write_text(
+        render(args.out, args.title, args.scenario), encoding="utf-8"
+    )
     print(f"wrote {args.out / 'report.md'}")
     return 0
 
