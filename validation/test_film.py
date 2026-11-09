@@ -6,7 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from simulation.scenario import load_scenario
+from simulation.mobility import Route
+from simulation.scenario import NodeSpec, Scenario, load_scenario
 from tools.film import (
     REFERRAL,
     SHOTS,
@@ -19,6 +20,7 @@ from tools.film import (
     legs,
     lit_slots,
     refusal_window,
+    road_index,
     sim_time,
     typing_frames,
     verify_cast,
@@ -223,3 +225,30 @@ def test_animated_webp_keeps_only_picture_data_from_each_still() -> None:
     data = animated_webp([with_profile], 1280, 720, 15)
     assert b"ICCP" not in data
     assert b"abc" in data
+
+
+def _node(s: Scenario, name: str) -> NodeSpec:
+    return next(n for n in s.nodes if n.config.node_id == name)
+
+
+def test_staged_relay_is_the_only_physical_path(tmp_path: Path) -> None:
+    s = load_scenario(str(write_film_scenario(tmp_path)))
+    mules = {n.config.node_id for n in s.nodes if n.config.role.value == "mule"}
+    assert mules == {"OUTREACH_BIKE", "AMBULANCE", "FORGER"}
+    bike, ambulance = _node(s, "OUTREACH_BIKE").mobility, _node(s, "AMBULANCE").mobility
+    assert isinstance(bike, Route) and isinstance(ambulance, Route)
+    assert bike.waypoints[bike.stops[1]] == ambulance.waypoints[0]  # type: ignore[index]
+
+
+def test_staged_vehicles_have_no_random_delays(tmp_path: Path) -> None:
+    s = load_scenario(str(write_film_scenario(tmp_path)))
+    for name in ("OUTREACH_BIKE", "AMBULANCE", "FORGER"):
+        route = _node(s, name).mobility
+        assert isinstance(route, Route) and route.schedule is None
+
+
+def test_road_index_measures_along_the_road() -> None:
+    road = [[0.0, 0.0], [0.001, 0.0], [0.002, 0.0], [0.003, 0.0]]  # about 110 m apart
+    assert road_index(road, 0) == 0
+    assert road_index(road, 120) == 1
+    assert road_index(road, 1e6) == 3

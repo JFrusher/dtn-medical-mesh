@@ -22,12 +22,12 @@ from pathlib import Path
 from typing import Any, TypeVar
 
 import yaml
-from playwright.sync_api import Page, Route, sync_playwright
+from playwright.sync_api import Locator, Page, Route, sync_playwright
 
-from interface.app import MessageIn
+from interface.app import MessageIn, ReferralIn
 from node.bundle import Receipt
 from node.core import NodeCore
-from simulation.live import LiveSim
+from simulation.live import DEMO_PIN, LiveSim
 from simulation.runner import RunResult, build
 from simulation.scenario import SCENARIO_DIR, load_scenario
 from simulation.virtual_hw import SIM_EPOCH
@@ -36,14 +36,15 @@ from tools.record_gifs import OUT, ROOT, serve
 
 T = TypeVar("T")
 
-REFERRAL = "Referral: 28F, 34 weeks, BP 160/110, headache"
+REFERRAL = "28F, 34 weeks, BP 160/110, headache"
 ORIGIN, DEST = "MURIETI", "HOSPITAL"
 SEED, SEND_AT_S = 7, 37800.0
-LIGHT_AT = [-3.418398, 36.656935]  # outside Murieti, so it stores a copy as the message is sent
 KISONGO_AT = [-3.3719, 36.57195]
-ROADSIDE_AT = [-3.381098, 36.661449]  # on the ambulance's road back to the hospital
+# Metres along the ambulance's road, measured back from Murieti.
+LIGHT_M, BIKE_TURN_M, MEET_M, ROADSIDE_M = 70, 200, 1500, 3500
 DRAWER_PX = 380
 FADE_FRAMES = 6
+SIGN_IN_FRAMES = 15
 FRAME_SIZE = (1280, 720)
 WEBP_QUALITY = 0.75  # about half the size of 0.9, at the cost of slightly softer road detail
 CLUTTER_M = 400
@@ -62,44 +63,76 @@ class Hop:
     slots: frozenset[int]
 
 
+def road_index(road: list[list[float]], metres: float) -> int:
+    """The waypoint `metres` along a [lat, lon] road (or the last one)."""
+    travelled = 0.0
+    for i, (a, b) in enumerate(zip(road, road[1:], strict=False)):
+        north = (b[0] - a[0]) * 110540
+        east = (b[1] - a[1]) * 111320 * math.cos(math.radians(a[0]))
+        travelled += math.hypot(north, east)
+        if travelled > metres:
+            return i
+    return len(road) - 1
+
+
+def _round_trip(way: list[list[float]], speed: int, start_s: float) -> dict[str, Any]:
+    """Drive `way`, wait, drive back, wait: no random delays, so the timing is exact."""
+    points = way + way[-2:0:-1]
+    return {
+        "waypoints": points,
+        "speed": speed,
+        "dwell_s": 600,
+        "start_s": start_s,
+        "stops": [0, len(way) - 1],
+    }
+
+
 def write_film_scenario(directory: Path) -> Path:
     """Arusha's real roads and the stress scenario's lossy radio, with a staged schedule.
 
-    Only the schedule is arranged: one street light moved next to the clinic, no background
-    traffic, and a forging carrier that loads an older message at Kisongo, then parks by the
-    road after the ambulance's outbound pass. It needs that older message because it forges
-    copies of what it holds, and only a piece the receiver has not seen is checked and refused.
+    The relay is the only physical path. The motorbike only rides between the clinic's street
+    light and a meeting point, and the ambulance only drives between that point and the
+    hospital. A forging carrier loads an older message at Kisongo, then parks on the
+    ambulance's road. It needs that message because it forges copies of what it holds, and
+    only a piece the receiver has not seen is checked and refused. Events are all real.
     """
     raw = yaml.safe_load((SCENARIO_DIR / "arusha.yaml").read_text())
     radio = yaml.safe_load((SCENARIO_DIR / "stress.yaml").read_text())["radio"]
     radio.pop("bit_flip_per_frame", None)  # so refused pieces come from the forger alone
-    radio.pop("wifi_range_m", None)
     raw["name"] = "arusha-film"
-    raw["radio"] = {**raw["radio"], **radio}
+    raw["radio"] = radio
     raw["workload"] = []
     raw["messages"] = [
         {
-            "at_s": 37700,
+            "at_s": SEND_AT_S - 1200,
             "from": "kisongo",
             "to": "usa-river",
             "priority": "ROUTINE",
             "text": "Vitals",
         }
     ]
-    next(n for n in raw["nodes"] if n["id"] == "LIGHT_MOSHI_ROAD")["at"] = LIGHT_AT
-    raw["nodes"].append(
-        {
-            "id": "FORGER",
-            "role": "mule",
-            "route": {
-                "waypoints": [KISONGO_AT, ROADSIDE_AT],
-                "speed": 10,
-                "dwell_s": 3600,
-                "start_s": 34390,
-            },
-            "hostile": {"attacks": ["forge_shards"]},
-        }
-    )
+    nodes = {n["id"]: n for n in raw["nodes"]}
+    ambulance = nodes["AMBULANCE"]["route"]
+    from_murieti = ambulance["waypoints"][: ambulance["stops"][1] + 1][::-1]
+    meet = road_index(from_murieti, MEET_M)
+    turn = road_index(from_murieti, BIKE_TURN_M)
+    nodes["LIGHT_MOSHI_ROAD"]["at"] = from_murieti[road_index(from_murieti, LIGHT_M)]
+    nodes["AMBULANCE"]["route"] = _round_trip(from_murieti[meet:], 11, SEND_AT_S + 800)
+    nodes["OUTREACH_BIKE"]["route"] = _round_trip(from_murieti[turn : meet + 1], 8, SEND_AT_S - 60)
+    roadside = from_murieti[road_index(from_murieti, ROADSIDE_M)]
+    forger = {
+        "id": "FORGER",
+        "role": "mule",
+        "route": {
+            "waypoints": [KISONGO_AT, roadside],
+            "speed": 10,
+            "dwell_s": 3600,
+            "start_s": SEND_AT_S - 3600,
+        },
+        "hostile": {"attacks": ["forge_shards"]},
+    }
+    keep = {"AMBULANCE", "OUTREACH_BIKE"}
+    raw["nodes"] = [n for n in raw["nodes"] if n["role"] != "mule" or n["id"] in keep] + [forger]
     path = directory / "film.yaml"
     path.write_text(yaml.safe_dump(raw))
     return path
@@ -244,8 +277,8 @@ def ease(x: float) -> float:
 
 
 def _send(sim: LiveSim) -> bytes:
-    msg = MessageIn(to="hospital", text=REFERRAL, priority="CRITICAL")
-    return bytes.fromhex(sim.send("murieti", msg, []))
+    msg = MessageIn(to="hospital", priority="CRITICAL", referral=ReferralIn(reason=REFERRAL))
+    return bytes.fromhex(sim.send("murieti", msg, [], "rehearsal"))
 
 
 @dataclass(frozen=True)
@@ -424,6 +457,11 @@ def _open_page(page: Page, url: str) -> None:
     page.wait_for_function("window.render && window.netmap")
 
 
+def _submit_pin(drawer: Locator) -> None:
+    drawer.locator(".signin .send").click()
+    drawer.locator(".tabs").wait_for()
+
+
 def _shoot(stage: Stage, cast: Cast) -> bytes:
     """Everything from the first frame to the end card. Returns the film message's bundle id."""
     page, sim = stage.page, stage.sim
@@ -446,15 +484,22 @@ def _shoot(stage: Stage, cast: Cast) -> bytes:
     stage.film("clear")
 
     beside_chat = View(ORIGIN, 14.0, left=DRAWER_PX)
+    pin = left.locator("input[type=password]")
+    for typed in range(1, len(DEMO_PIN) + 1):
+        pin.fill(DEMO_PIN[:typed])
+        stage.snap(beside_chat, 2)
+    _submit_pin(left)
+    left.locator("[data-tab=referral]").click()
+    stage.snap(beside_chat, SIGN_IN_FRAMES - 2 * len(DEMO_PIN))
     typing = typing_frames(REFERRAL)
     for text in typing:
-        left.locator("textarea").fill(text)
+        left.locator("[name=reason]").fill(text)
         stage.snap(beside_chat)
     left.locator("button[data-p=CRITICAL]").click()
     stage.snap(beside_chat, 8)
     left.locator(".send").click()
     left.locator(".msg.out", has_text="34 weeks").wait_for()
-    stage.snap(beside_chat, frames_of["send"] - len(typing) - 8)
+    stage.snap(beside_chat, frames_of["send"] - SIGN_IN_FRAMES - len(typing) - 8)
 
     murieti = sim.r.endpoints["murieti"]
     bid = sim.on_loop(lambda: list(murieti.sent)[-1])
@@ -509,7 +554,8 @@ def _shoot(stage: Stage, cast: Cast) -> bytes:
     page.evaluate("window.netmap.select(null)")
     stage.film("drawer", "right", 0)
     page.locator(".open.right").click()
-    right.locator(".to").select_option("murieti")
+    right.locator("input[type=password]").fill(DEMO_PIN)
+    _submit_pin(right)
     beside_hospital = View(DEST, 14.0, right=DRAWER_PX)
     arrived = [h for h in cast.hops if h.t <= cast.opened_t + 1]
     if len(lit_slots(arrived, DEST, 1.0)) < 4:
@@ -539,6 +585,9 @@ def _shoot(stage: Stage, cast: Cast) -> bytes:
     sim.to(cast.acked_t + 1)
     page.evaluate("document.getElementById('journey').style.opacity = 0")
     page.locator(".open.left").click()
+    if left.locator("input[type=password]").is_visible():  # long enough away to have locked
+        left.locator("input[type=password]").fill(DEMO_PIN)
+        _submit_pin(left)
     left.locator(".msg.out", has_text="34 weeks").locator(".follow").click()
     page.locator(".timeline li", has_text="Delivery confirmation").wait_for()
     stage.say("journey", right=True)

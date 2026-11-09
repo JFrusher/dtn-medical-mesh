@@ -1,8 +1,6 @@
 <div align="center">
 
-# Satchel
-
-**Encrypted clinical messages that travel with the vehicles already on the road.**
+<img src="docs/media/banner.png" alt="Satchel: encrypted clinical messages that travel with the vehicles already on the road. Map of Arusha with the road from Murieti clinic to the hospital marked by 12 message pieces, the last 4 filled in." width="900">
 
 <sub>dtn-medical-mesh: a delay-tolerant network for health sites with no internet</sub>
 

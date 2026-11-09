@@ -68,7 +68,7 @@ Captions are drafts. Numbers in them must match the final run.
 
 ## Staged schedule
 
-The events are real and the timetable is not. `write_film_scenario` in `tools/film.py` moves one street light next to Murieti, removes background traffic, and has a forging carrier load an older message at Kisongo before parking by the road after the ambulance's outbound pass. Encryption, handovers, refusals, reconstruction and the confirmation all run in the emulator unchanged. The published scenarios and results do not use this schedule.
+The events are real and the timetable is not. `write_film_scenario` in `tools/film.py` makes the relay the only physical path. The motorbike only rides between a street light beside Murieti and a meeting point, the ambulance only drives between that point and the hospital, other vehicles and background traffic are removed, and random departure delays are off. A forging carrier loads an older message at Kisongo, then parks on the ambulance's road. Encryption, handovers, refusals, reconstruction and the confirmation all run in the emulator unchanged. The published scenarios and results do not use this schedule.
 
 ## Visual system
 
