@@ -136,7 +136,7 @@ sequenceDiagram
   Note over A,H: each checks the other's certificate chain and revocation list
   A->>H: Certificates H lacks, then pieces H lacks, most urgent first
   Note over H: each piece verified alone, stored in one transaction
-  H-->>A: Signed custody receipt (batched; may arrive at a later meeting)
+  H-->>A: Signed custody receipt (batched, may arrive at a later meeting)
   A->>H: Exact list after 2 seconds, catching any Bloom-filter misses
   Note over A,H: the link can drop at any byte: nothing is deleted until receipted or acknowledged
 ```
