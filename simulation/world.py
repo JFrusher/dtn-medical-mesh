@@ -190,6 +190,15 @@ class World:
         self.log(self.scheduler.now, f"POWER ON {node.id}")
         node.boot(self.scheduler.now)
 
+    def close(self) -> None:
+        """Close every open node store. Call once a run's results have been read, so a
+        TemporaryDirectory holding the stores can be removed on Windows, which refuses to
+        delete a file while a handle is open (POSIX allows it, so this is a no-op there)."""
+        for node in self.nodes.values():
+            if node.up:
+                node.storage.close()
+                node.up = False
+
     def start(self) -> None:
         for node in self.nodes.values():
             node.boot(self.scheduler.now)

@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 278" font-family="system-ui, sans-serif" font-size="13" role="img" aria-label="CRITICAL delivered within 4 h (%)">
+<style>.bg{fill:#fcfcfb}.t1{fill:#0b0b0b}.t2{fill:#52514e}.grid{stroke:#e4e3df}.bar{fill:#2a78d6}.ci{stroke:#0b0b0b;stroke-width:1.5}@media (prefers-color-scheme: dark){.bg{fill:#1a1a19}.t1{fill:#f0efec}.t2{fill:#c3c2b7}.grid{stroke:#3a3936}.bar{fill:#3987e5}.ci{stroke:#f0efec}}</style>
+<rect class="bg" width="100%" height="100%"/>
+<text class="t1" x="16" y="24" font-size="15" font-weight="600">CRITICAL delivered within 4 h (%)</text>
+<line class="grid" x1="190.0" x2="190.0" y1="38" y2="252"/>
+<text class="t2" x="190.0" y="268" text-anchor="middle">0%</text>
+<line class="grid" x1="295.0" x2="295.0" y1="38" y2="252"/>
+<text class="t2" x="295.0" y="268" text-anchor="middle">25%</text>
+<line class="grid" x1="400.0" x2="400.0" y1="38" y2="252"/>
+<text class="t2" x="400.0" y="268" text-anchor="middle">50%</text>
+<line class="grid" x1="505.0" x2="505.0" y1="38" y2="252"/>
+<text class="t2" x="505.0" y="268" text-anchor="middle">75%</text>
+<line class="grid" x1="610.0" x2="610.0" y1="38" y2="252"/>
+<text class="t2" x="610.0" y="268" text-anchor="middle">100%</text>
+<text class="t1" x="180" y="61" text-anchor="end">baseline</text>
+<path class="bar" d="M190,50 h416.0 q4.0,0 4.0,4.0 v4.0 q0,4.0 -4.0,4.0 h-416.0 z"/>
+<line class="ci" x1="610.0" x2="610.0" y1="56" y2="56"/>
+<line class="ci" x1="610.0" x2="610.0" y1="51" y2="61"/>
+<line class="ci" x1="610.0" x2="610.0" y1="51" y2="61"/>
+<text class="t2" x="616.0" y="61">100%</text>
+<text class="t1" x="180" y="95" text-anchor="end">half goodput</text>
+<path class="bar" d="M190,84 h416.0 q4.0,0 4.0,4.0 v4.0 q0,4.0 -4.0,4.0 h-416.0 z"/>
+<line class="ci" x1="610.0" x2="610.0" y1="90" y2="90"/>
+<line class="ci" x1="610.0" x2="610.0" y1="85" y2="95"/>
+<line class="ci" x1="610.0" x2="610.0" y1="85" y2="95"/>
+<text class="t2" x="616.0" y="95">100%</text>
+<text class="t1" x="180" y="129" text-anchor="end">slow link-up</text>
+<path class="bar" d="M190,118 h416.0 q4.0,0 4.0,4.0 v4.0 q0,4.0 -4.0,4.0 h-416.0 z"/>
+<line class="ci" x1="610.0" x2="610.0" y1="124" y2="124"/>
+<line class="ci" x1="610.0" x2="610.0" y1="119" y2="129"/>
+<line class="ci" x1="610.0" x2="610.0" y1="119" y2="129"/>
+<text class="t2" x="616.0" y="129">100%</text>
+<text class="t1" x="180" y="163" text-anchor="end">worse range</text>
+<path class="bar" d="M190,152 h402.0 q4.0,0 4.0,4.0 v4.0 q0,4.0 -4.0,4.0 h-402.0 z"/>
+<line class="ci" x1="568.0" x2="610.0" y1="158" y2="158"/>
+<line class="ci" x1="568.0" x2="568.0" y1="153" y2="163"/>
+<line class="ci" x1="610.0" x2="610.0" y1="153" y2="163"/>
+<text class="t2" x="616.0" y="163">97%</text>
+<text class="t1" x="180" y="197" text-anchor="end">lossy link</text>
+<path class="bar" d="M190,186 h416.0 q4.0,0 4.0,4.0 v4.0 q0,4.0 -4.0,4.0 h-416.0 z"/>
+<line class="ci" x1="610.0" x2="610.0" y1="192" y2="192"/>
+<line class="ci" x1="610.0" x2="610.0" y1="187" y2="197"/>
+<line class="ci" x1="610.0" x2="610.0" y1="187" y2="197"/>
+<text class="t2" x="616.0" y="197">100%</text>
+<text class="t1" x="180" y="231" text-anchor="end">pessimistic stack</text>
+<path class="bar" d="M190,220 h402.0 q4.0,0 4.0,4.0 v4.0 q0,4.0 -4.0,4.0 h-402.0 z"/>
+<line class="ci" x1="568.0" x2="610.0" y1="226" y2="226"/>
+<line class="ci" x1="568.0" x2="568.0" y1="221" y2="231"/>
+<line class="ci" x1="610.0" x2="610.0" y1="221" y2="231"/>
+<text class="t2" x="616.0" y="231">97%</text>
+</svg>

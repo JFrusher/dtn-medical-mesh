@@ -104,6 +104,7 @@ def run_job(job: Job) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     with tempfile.TemporaryDirectory() as tmp:
         result = run(scenario, job.seed, Path(tmp))
         report = evaluate(result, job.seed)
+        result.world.close()  # release node stores before tmp is removed (Windows)
         now_ms = int((SIM_EPOCH + result.world.scheduler.now) * 1000)
         opened = {r.bundle_id: r.at_s for e in result.endpoints.values() for r in e.inbox}
         rows, delivered_bytes = [], 0
